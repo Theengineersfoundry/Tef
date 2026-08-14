@@ -1373,6 +1373,9 @@ export const TerminalTab: React.FC<TerminalTabProps> = ({
                 onChange={(e) => handleBaudRateChange(Number(e.target.value))}
                 style={{ minHeight: 26, height: 26, padding: '0 6px', width: 'auto', fontFamily: 'var(--font-mono)', fontSize: 12 }}
               >
+                <option value={1200}>1200</option>
+                <option value={2400}>2400</option>
+                <option value={4800}>4800</option>
                 <option value={9600}>9600</option>
                 <option value={19200}>19200</option>
                 <option value={38400}>38400</option>
