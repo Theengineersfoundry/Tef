@@ -1,0 +1,78 @@
+{
+  "name": "serial-software",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "main": "electron/main.cjs",
+  "scripts": {
+    "dev": "vite",
+    "server": "npx tsx server/index.ts",
+    "start": "npx tsx server/index.ts",
+    "build": "tsc -b && vite build",
+    "tauri": "tauri",
+    "tauri:dev": "tauri dev",
+    "tauri:build": "tauri build",
+    "build:exe": "tauri build",
+    "package:exe": "npx electron-builder --config.npmRebuild=false",
+    "lint": "oxlint",
+    "preview": "vite preview"
+  },
+  "build": {
+    "appId": "com.termix.desktop",
+    "productName": "TermiX",
+    "npmRebuild": false,
+    "directories": {
+      "output": "C:\\Users\\LENOVO\\termix-build-output"
+    },
+    "files": [
+      "dist/**/*",
+      "server/**/*",
+      "electron/**/*"
+    ],
+    "win": {
+      "target": "dir"
+    }
+  },
+  "dependencies": {
+    "@tauri-apps/api": "^2.11.1",
+    "@xterm/addon-fit": "^0.10.0",
+    "@xterm/xterm": "^5.5.0",
+    "cors": "^2.8.5",
+    "express": "^4.21.2",
+    "lucide-react": "^0.479.0",
+    "react": "^19.2.7",
+    "react-dom": "^19.2.7",
+    "serialport": "^13.0.0",
+    "ssh2": "^1.16.0",
+    "tsx": "^4.19.2",
+    "ws": "^8.18.0"
+  },
+  "devDependencies": {
+    "@tailwindcss/vite": "^4.0.0",
+    "@tauri-apps/cli": "^2.1.0",
+    "@types/cors": "^2.8.17",
+    "@types/express": "^5.0.0",
+    "@types/node": "^24.13.2",
+    "@types/react": "^19.2.17",
+    "@types/react-dom": "^19.2.3",
+    "@types/ssh2": "^1.15.4",
+    "@types/ws": "^8.5.14",
+    "@vitejs/plugin-react": "^6.0.3",
+    "electron": "34.2.0",
+    "electron-builder": "^25.1.8",
+    "oxlint": "^1.71.0",
+    "tailwindcss": "^4.0.0",
+    "typescript": "~6.0.2",
+    "vite": "^8.1.1"
+  },
+  "description": "TermiX Open-Source Replacement for PuTTY with Real SSH, SFTP, and Serial Hardware capabilities",
+  "keywords": [
+    "ssh",
+    "serial",
+    "terminal",
+    "putty",
+    "sftp"
+  ],
+  "author": "TermiX Open Source Team",
+  "license": "MIT"
+}
