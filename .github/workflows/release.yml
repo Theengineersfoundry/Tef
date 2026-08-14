@@ -1,4 +1,4 @@
-# Builds TermiX for Windows, macOS (Apple Silicon + Intel), and Linux.
+# Builds Tef for Windows, macOS (Apple Silicon + Intel), and Linux.
 # Run from GitHub → Actions → “Release” → Run workflow
 # Or push a tag like v1.0.0
 name: Release
@@ -33,7 +33,7 @@ jobs:
         if: matrix.platform == 'ubuntu-22.04'
         run: |
           sudo apt-get update
-          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf xdg-utils
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf xdg-utils libudev-dev pkg-config
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -54,13 +54,13 @@ jobs:
       - name: Install frontend dependencies
         run: npm ci
 
-      - name: Build TermiX
+      - name: Build Tef
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           tagName: v__VERSION__
-          releaseName: 'TermiX v__VERSION__'
+          releaseName: 'Tef v__VERSION__'
           releaseBody: 'Download the installer for your OS from the assets below.'
           releaseDraft: true
           prerelease: false
@@ -69,7 +69,7 @@ jobs:
       - name: Upload installers
         uses: actions/upload-artifact@v4
         with:
-          name: termix-${{ matrix.platform }}-${{ strategy.job-index }}
+          name: tef-${{ matrix.platform }}-${{ strategy.job-index }}
           path: |
             src-tauri/target/release/bundle/**
             src-tauri/target/*/release/bundle/**

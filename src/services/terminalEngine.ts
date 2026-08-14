@@ -128,7 +128,7 @@ export class TerminalEngine {
     
     return [
       `\x1b[1;34m===============================================================\x1b[0m\r\n`,
-      `\x1b[1;32m TermiX SSH Engine v1.0.0 (Encrypted AES-256-GCM)\x1b[0m\r\n`,
+      `\x1b[1;32m Tef SSH Engine v1.0.0 (Encrypted AES-256-GCM)\x1b[0m\r\n`,
       `\x1b[36m Connecting to: ${user}@${host}:22${keyInfo}\x1b[0m\r\n`,
       `\x1b[1;34m===============================================================\x1b[0m\r\n`,
     ].join('');
@@ -139,7 +139,7 @@ export class TerminalEngine {
     const baud = config?.baudRate || 115200;
     
     return [
-      `\x1b[1;35m--- TermiX Serial Monitor Stream Opened [${port}] ---\x1b[0m\r\n`,
+      `\x1b[1;35m--- Tef Serial Monitor Stream Opened [${port}] ---\x1b[0m\r\n`,
       `\x1b[36mBaud: ${baud} bps | Data: ${config?.dataBits || 8} | Parity: ${config?.parity || 'NONE'} | Stop: ${config?.stopBits || 1}\x1b[0m\r\n`,
       `-----------------------------------------------------------------\r\n`,
     ].join('');

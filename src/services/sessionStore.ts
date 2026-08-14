@@ -1,7 +1,7 @@
 import type { Session, Snippet } from '../types/terminal';
 
-const SESSIONS_KEY = 'termix_saved_sessions';
-const SNIPPETS_KEY = 'termix_saved_snippets';
+const SESSIONS_KEY = 'tef_saved_sessions';
+const SNIPPETS_KEY = 'tef_saved_snippets';
 
 export const DEFAULT_SESSIONS: Session[] = [];
 

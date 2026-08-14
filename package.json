@@ -18,11 +18,11 @@
     "preview": "vite preview"
   },
   "build": {
-    "appId": "com.termix.desktop",
-    "productName": "TermiX",
+    "appId": "com.theengineersfoundry.tef",
+    "productName": "Tef",
     "npmRebuild": false,
     "directories": {
-      "output": "C:\\Users\\LENOVO\\termix-build-output"
+      "output": "C:\\Users\\LENOVO\\tef-build-output"
     },
     "files": [
       "dist/**/*",
@@ -65,7 +65,7 @@
     "typescript": "~6.0.2",
     "vite": "^8.1.1"
   },
-  "description": "TermiX Open-Source Replacement for PuTTY with Real SSH, SFTP, and Serial Hardware capabilities",
+  "description": "Tef — SSH, serial, SFTP, and local terminal",
   "keywords": [
     "ssh",
     "serial",
@@ -73,6 +73,6 @@
     "putty",
     "sftp"
   ],
-  "author": "TermiX Open Source Team",
+  "author": "The Engineers Foundry",
   "license": "MIT"
 }

@@ -27,14 +27,14 @@ function resolveBackendLaunch() {
 
 function startBackend() {
   const { command, args } = resolveBackendLaunch();
-  console.log(`[TermiX Electron] Starting backend: ${command} ${args.join(' ')}`);
+  console.log(`[Tef Electron] Starting backend: ${command} ${args.join(' ')}`);
   backendProcess = spawn(command, args, {
     stdio: 'inherit',
     shell: process.platform === 'win32',
     cwd: path.join(__dirname, '..'),
   });
   backendProcess.on('error', (err) => {
-    console.error('[TermiX Electron] Backend failed to start:', err.message);
+    console.error('[Tef Electron] Backend failed to start:', err.message);
   });
 }
 
@@ -42,7 +42,7 @@ function createWindow() {
   mainWindow = new BrowserWindow({
     width: 1280,
     height: 800,
-    title: 'TermiX - Open-Source PuTTY Replacement',
+    title: 'Tef - Open-Source PuTTY Replacement',
     icon: path.join(__dirname, '../public/favicon.svg'),
     backgroundColor: '#1e1e1e',
     autoHideMenuBar: true,

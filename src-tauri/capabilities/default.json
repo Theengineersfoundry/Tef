@@ -1,7 +1,7 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "TermiX default capability",
+  "description": "Tef default capability",
   "windows": ["main"],
   "permissions": [
     "core:default",

@@ -30,5 +30,5 @@ pub fn run() {
       commands::sftp_chmod,
     ])
     .run(tauri::generate_context!())
-    .expect("error while running TermiX");
+    .expect("error while running Tef");
 }

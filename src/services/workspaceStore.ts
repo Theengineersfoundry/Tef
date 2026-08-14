@@ -1,6 +1,6 @@
 import type { Workspace } from '../types/terminal';
 
-const WORKSPACES_KEY = 'termix_saved_workspaces';
+const WORKSPACES_KEY = 'tef_saved_workspaces';
 
 export class WorkspaceStore {
   static getWorkspaces(): Workspace[] {

@@ -250,7 +250,7 @@ app.post('/api/sftp/chmod', (req, res) => {
 
 // ─── WebSocket Handler ───
 wss.on('connection', (ws: WebSocket) => {
-  console.log('[TermiX Backend] New WebSocket terminal connection requested.');
+  console.log('[Tef Backend] New WebSocket terminal connection requested.');
 
   let sshClient: Client | null = null;
   let sshStream: any = null; // SSH shell stream reference
@@ -293,7 +293,7 @@ wss.on('connection', (ws: WebSocket) => {
           if (err) {
             ws.send(JSON.stringify({ type: 'ERROR', error: `Failed to update baud rate: ${err.message}` }));
           } else {
-            console.log(`[TermiX Serial] Updated COM port baud rate to ${newBaud} bps.`);
+            console.log(`[Tef Serial] Updated COM port baud rate to ${newBaud} bps.`);
             ws.send(JSON.stringify({ type: 'BAUD_CHANGED', baudRate: newBaud, message: `--- Serial Port Baud Rate Updated to ${newBaud} bps ---` }));
           }
         });
@@ -303,7 +303,7 @@ wss.on('connection', (ws: WebSocket) => {
       // ── INIT_SERIAL: Open a real physical COM port ──
       if (payload.type === 'INIT_SERIAL') {
         const { path: comPath, baudRate, dataBits, parity, stopBits } = payload.config;
-        console.log(`[TermiX Serial] Opening real physical COM port: ${comPath} at ${baudRate} baud...`);
+        console.log(`[Tef Serial] Opening real physical COM port: ${comPath} at ${baudRate} baud...`);
 
         const releasePreviousPort = (done: () => void) => {
           if (!activeSerialPort) {
@@ -345,7 +345,7 @@ wss.on('connection', (ws: WebSocket) => {
 
             activeSerialPort.open((err) => {
               if (err) {
-                console.error(`[TermiX Serial Error] ${err.message}`);
+                console.error(`[Tef Serial Error] ${err.message}`);
                 try { activeSerialPort?.removeAllListeners(); } catch {}
                 activeSerialPort = null;
                 ws.send(JSON.stringify({ type: 'ERROR', error: `Serial Port ${comPath} Error: ${err.message}` }));
@@ -354,7 +354,7 @@ wss.on('connection', (ws: WebSocket) => {
 
               ws.send(JSON.stringify({
                 type: 'CONNECTED',
-                message: `--- TermiX Hardware Serial Monitor Connected [${comPath} @ ${baudRate} bps] ---`,
+                message: `--- Tef Hardware Serial Monitor Connected [${comPath} @ ${baudRate} bps] ---`,
               }));
 
               serialDataHandler = (chunk: Buffer) => {
@@ -411,7 +411,7 @@ wss.on('connection', (ws: WebSocket) => {
         let privateKey: string | undefined;
         if (privateKeyPath) {
           privateKey = loadPrivateKey(privateKeyPath);
-          if (privateKey) console.log(`[TermiX SSH] Loaded Private Key from ${privateKeyPath}`);
+          if (privateKey) console.log(`[Tef SSH] Loaded Private Key from ${privateKeyPath}`);
         }
         ws.send(JSON.stringify({ type: 'STATUS', message: `Connecting to ${username}@${host}:${port}...` }));
         sshClient.connect({ host, port: port || 22, username, password: password || undefined, privateKey, readyTimeout: 10000 });
@@ -432,7 +432,7 @@ wss.on('connection', (ws: WebSocket) => {
 
 server.listen(PORT, () => {
   console.log(`=======================================================`);
-  console.log(`  TermiX Real Native Backend Engine listening on ${PORT}`);
+  console.log(`  Tef Real Native Backend Engine listening on ${PORT}`);
   console.log(`  Real SSH | Real SFTP | Real Hardware Serial Enabled`);
   console.log(`=======================================================`);
 });

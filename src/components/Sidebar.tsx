@@ -16,7 +16,7 @@ import {
 } from 'lucide-react';
 import type { Session } from '../types/terminal';
 
-const SIDEBAR_WIDTH_KEY = 'termix.explorerWidth';
+const SIDEBAR_WIDTH_KEY = 'tef.explorerWidth';
 const SIDEBAR_MIN = 180;
 const SIDEBAR_MAX = 520;
 const SIDEBAR_DEFAULT = 288;

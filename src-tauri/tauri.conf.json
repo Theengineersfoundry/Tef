@@ -1,8 +1,8 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "TermiX",
+  "productName": "Tef",
   "version": "1.0.0",
-  "identifier": "com.termix.desktop",
+  "identifier": "com.theengineersfoundry.tef",
   "build": {
     "beforeDevCommand": "npm run dev",
     "devUrl": "http://localhost:5173",
@@ -13,7 +13,7 @@
     "windows": [
       {
         "label": "main",
-        "title": "TermiX",
+        "title": "Tef",
         "width": 1280,
         "height": 800,
         "minWidth": 720,

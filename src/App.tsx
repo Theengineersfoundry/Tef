@@ -312,9 +312,9 @@ export const App: React.FC = () => {
         }}
       >
         <img
-          src="/termix-logo.png"
-          alt="TermiX"
-          title="TermiX"
+          src="/tef-logo.png"
+          alt="Tef"
+          title="Tef"
           data-tauri-drag-region
           className="w-7 h-7 rounded-full shrink-0 object-cover"
           draggable={false}
@@ -435,8 +435,8 @@ export const App: React.FC = () => {
           {tabs.length === 0 ? (
             <div className="flex-1 flex flex-col items-center justify-center px-8 py-10 text-center">
               <img
-                src="/termix-logo.png"
-                alt="TermiX"
+                src="/tef-logo.png"
+                alt="Tef"
                 className="w-14 h-14 rounded-full object-cover mb-6"
                 draggable={false}
               />

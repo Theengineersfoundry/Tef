@@ -1,12 +1,12 @@
 [package]
-name = "termix"
+name = "tef"
 version = "1.0.0"
-description = "TermiX Open-Source Replacement for PuTTY"
-authors = ["TermiX Open Source Team"]
+description = "Tef — SSH, serial, and local terminal"
+authors = ["The Engineers Foundry"]
 edition = "2021"
 
 [lib]
-name = "termix_lib"
+name = "tef_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
 [build-dependencies]
