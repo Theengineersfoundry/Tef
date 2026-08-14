@@ -194,6 +194,30 @@ export async function readClipboardText(): Promise<string> {
   return navigator.clipboard.readText();
 }
 
+/** Save text via native Save As (Tauri) or a browser download. Returns false if cancelled. */
+export async function saveTextFile(defaultName: string, contents: string): Promise<boolean> {
+  if (isTauriRuntime()) {
+    try {
+      await invokeTauri('save_text_file', { defaultName, contents });
+      return true;
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      if (message.toLowerCase().includes('cancelled')) return false;
+      throw err;
+    }
+  }
+  const blob = new Blob([contents], { type: 'text/plain;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = defaultName;
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  URL.revokeObjectURL(url);
+  return true;
+}
+
 export async function localList(path?: string): Promise<{ path: string; files: any[] }> {
   if (isTauriRuntime()) {
     return invokeTauri('local_list', { path: path ?? null });

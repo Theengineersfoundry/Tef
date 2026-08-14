@@ -127,6 +127,22 @@ pub fn clipboard_read() -> Result<String, String> {
     .map_err(|e| e.to_string())
 }
 
+/// Native Save As dialog — browser <a download> does nothing in Tauri WebView.
+#[tauri::command]
+pub fn save_text_file(default_name: String, contents: String) -> Result<String, String> {
+  let ext = std::path::Path::new(&default_name)
+    .extension()
+    .and_then(|s| s.to_str())
+    .unwrap_or("txt");
+  let path = rfd::FileDialog::new()
+    .set_file_name(&default_name)
+    .add_filter(ext.to_ascii_uppercase(), &[ext])
+    .save_file()
+    .ok_or_else(|| "cancelled".to_string())?;
+  std::fs::write(&path, contents).map_err(|e| e.to_string())?;
+  Ok(path.to_string_lossy().into_owned())
+}
+
 #[tauri::command]
 pub fn local_list(path: Option<String>) -> Result<local_fs::DirListing, String> {
   local_fs::list_dir(path)

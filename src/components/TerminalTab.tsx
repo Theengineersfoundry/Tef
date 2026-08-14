@@ -32,6 +32,7 @@ import {
   openLocalSession,
   readClipboardText,
   resizeSession,
+  saveTextFile,
   setSessionBaud,
   writeClipboardText,
   writeSession,
@@ -1327,13 +1328,9 @@ export const TerminalTab: React.FC<TerminalTabProps> = ({
       (body.endsWith('\n') ? body : `${body}\n`) +
       `\n--- End of log · downloaded ${new Date().toISOString()} ---\n`;
 
-    const blob = new Blob([logData], { type: 'text/plain;charset=utf-8' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = `tef_${safeName}_${stamp}.log`;
-    link.click();
-    URL.revokeObjectURL(url);
+    void saveTextFile(`tef_${safeName}_${stamp}.log`, logData).catch(() => {
+      xtermRef.current?.write(`\r\n\x1b[33m[Tef] Could not save the log file.\x1b[0m\r\n`);
+    });
   };
 
   return (

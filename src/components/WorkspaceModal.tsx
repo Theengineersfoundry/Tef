@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { X, Layers, Plus, Download, Upload, Trash2, Play } from 'lucide-react';
 import type { Workspace, TerminalTab } from '../types/terminal';
 import { WorkspaceStore } from '../services/workspaceStore';
+import { isTauriRuntime, saveTextFile } from '../services/sessionBackend';
 
 interface WorkspaceModalProps {
   isOpen: boolean;
@@ -48,15 +49,16 @@ export const WorkspaceModal: React.FC<WorkspaceModalProps> = ({
     setIsCreating(false);
   };
 
-  const handleExportJSON = (ws: Workspace) => {
+  const handleExportJSON = async (ws: Workspace) => {
     const json = WorkspaceStore.exportWorkspaceJSON(ws);
-    const blob = new Blob([json], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = `workspace_${ws.name.replace(/\s+/g, '_')}.json`;
-    link.click();
-    URL.revokeObjectURL(url);
+    const filename = `workspace_${ws.name.replace(/\s+/g, '_')}.json`;
+    try {
+      await saveTextFile(filename, json);
+    } catch {
+      if (!isTauriRuntime()) {
+        alert('Could not download the layout file.');
+      }
+    }
   };
 
   const handleImportSubmit = (e: React.FormEvent) => {
