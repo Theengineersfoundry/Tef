@@ -24,6 +24,7 @@ import { WorkspaceModal } from './components/WorkspaceModal';
 import { TerminalBridge } from './services/terminalBridge';
 import { WindowControls } from './components/WindowControls';
 import { closeSession, isTauriRuntime } from './services/sessionBackend';
+import { detectOs, usesCustomWindowControls } from './services/platform';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 
 type ProtocolPrefill = 'ssh' | 'serial' | 'local' | undefined;
@@ -98,10 +99,13 @@ export const App: React.FC = () => {
   };
 
   const openEditSession = (session: Session) => {
-    setEditingSession(session);
-    setSessionModalProtocol(session.protocol);
-    setSessionModalKey((k) => k + 1);
-    setIsSessionModalOpen(true);
+    // Open on the next tick so the context-menu click cannot hit the new modal.
+    window.setTimeout(() => {
+      setEditingSession(session);
+      setSessionModalProtocol(session.protocol);
+      setSessionModalKey((k) => k + 1);
+      setIsSessionModalOpen(true);
+    }, 0);
   };
 
   useEffect(() => {
@@ -344,6 +348,10 @@ export const App: React.FC = () => {
 
   const activeTab = tabs.find((t) => t.id === activeTabId);
   const isSftpTab = (tab: TabType) => tab.title.startsWith('Files') || tab.title.includes('SFTP');
+  const os = detectOs();
+  const showWindowControls = isTauriRuntime() && usesCustomWindowControls();
+  const modalOpen =
+    isSessionModalOpen || isWorkspaceModalOpen || isCommandPaletteOpen;
 
   const toggleMaximize = () => {
     if (!isTauriRuntime()) return;
@@ -354,12 +362,13 @@ export const App: React.FC = () => {
     <div className="flex flex-col h-screen w-screen overflow-hidden app-root" style={{ background: 'var(--bg-app)', color: 'var(--text)' }}>
       {/* Native drag region only — do not also call startDragging() (breaks later drags on WebView2). */}
       <header
-        className="app-chrome"
-        data-tauri-drag-region
+        className={`app-chrome${os === 'macos' ? ' is-macos' : ''}${os === 'linux' ? ' is-linux' : ''}`}
+        {...(os === 'windows' ? { 'data-tauri-drag-region': true } : {})}
         onContextMenu={(e) => {
           e.preventDefault();
         }}
         onDoubleClick={(e) => {
+          if (os !== 'windows') return;
           const target = e.target as HTMLElement | null;
           if (target?.closest('button, a, input, select, textarea, .tab-chip, .window-controls, .app-chrome-actions')) {
             return;
@@ -453,7 +462,7 @@ export const App: React.FC = () => {
           >
             <Code className="w-3.5 h-3.5" />
           </button>
-          {isTauriRuntime() && (
+          {showWindowControls && (
             <>
               <div className="app-chrome-sep" aria-hidden />
               <WindowControls />
@@ -551,6 +560,7 @@ export const App: React.FC = () => {
                   isActive={isActive}
                   onUpdateTabStatus={handleUpdateTabStatus}
                   onOpenSFTPTab={handleOpenSFTPTab}
+                  suspendTerminalFocus={modalOpen}
                 />
               );
             })

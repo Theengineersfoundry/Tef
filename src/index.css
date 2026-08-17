@@ -600,7 +600,7 @@ button {
   position: absolute;
   top: calc(100% + 8px);
   right: 0;
-  z-index: 60;
+  z-index: 40;
   padding: 6px 10px;
   font-size: 12px;
   font-weight: 500;
@@ -628,6 +628,14 @@ button {
   background: var(--md-sys-color-surface-container-lowest);
   border-bottom: 1px solid var(--border);
   user-select: none;
+}
+
+.app-chrome.is-macos {
+  padding-left: 78px;
+}
+
+.app-chrome.is-linux {
+  padding-left: 10px;
 }
 
 .app-chrome-tabs {
@@ -844,7 +852,7 @@ button {
 .modal-backdrop {
   position: fixed;
   inset: 0;
-  z-index: 50;
+  z-index: 200;
   display: flex;
   align-items: center;
   justify-content: center;

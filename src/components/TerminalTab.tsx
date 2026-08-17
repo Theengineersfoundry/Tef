@@ -44,6 +44,7 @@ interface TerminalTabProps {
   isActive: boolean;
   onUpdateTabStatus: (tabId: string, status: TabType['status'], tx?: number, rx?: number) => void;
   onOpenSFTPTab?: (tab: TabType) => void;
+  suspendTerminalFocus?: boolean;
 }
 
 export const TerminalTab: React.FC<TerminalTabProps> = ({
@@ -51,6 +52,7 @@ export const TerminalTab: React.FC<TerminalTabProps> = ({
   isActive,
   onUpdateTabStatus,
   onOpenSFTPTab,
+  suspendTerminalFocus = false,
 }) => {
   const terminalRef = useRef<HTMLDivElement>(null);
   const xtermRef = useRef<Terminal | null>(null);
@@ -94,10 +96,15 @@ export const TerminalTab: React.FC<TerminalTabProps> = ({
   }, []);
 
   useEffect(() => {
+    if (suspendTerminalFocus) {
+      const ta = xtermRef.current?.element?.querySelector('textarea');
+      if (ta instanceof HTMLElement) ta.blur();
+      return;
+    }
     if (isActive && xtermRef.current) {
       xtermRef.current.focus();
     }
-  }, [isActive]);
+  }, [isActive, suspendTerminalFocus]);
 
   // Register this tab so macros/snippets can inject into the live session
   useEffect(() => {
@@ -1648,7 +1655,10 @@ export const TerminalTab: React.FC<TerminalTabProps> = ({
           <div className="terminal-viewport-host">
             <div
               ref={terminalRef}
-              onClick={() => xtermRef.current?.focus()}
+              onClick={() => {
+                if (suspendTerminalFocus) return;
+                xtermRef.current?.focus();
+              }}
               onContextMenu={handleContextMenu}
               className="terminal-viewport cursor-text"
             />
