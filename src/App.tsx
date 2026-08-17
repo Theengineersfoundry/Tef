@@ -41,12 +41,13 @@ export const App: React.FC = () => {
   const [isSnippetDrawerOpen, setIsSnippetDrawerOpen] = useState(false);
   const [isCommandPaletteOpen, setIsCommandPaletteOpen] = useState(false);
   const [isWorkspaceModalOpen, setIsWorkspaceModalOpen] = useState(false);
+  const [activeLayoutId, setActiveLayoutId] = useState<string | null>(null);
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
   const [toast, setToast] = useState<string | null>(null);
 
   const showToast = (message: string) => {
     setToast(message);
-    window.setTimeout(() => setToast(null), 2800);
+    window.setTimeout(() => setToast(null), 3500);
   };
 
   const openNewSession = (protocol?: ProtocolPrefill) => {
@@ -194,15 +195,45 @@ export const App: React.FC = () => {
   };
 
   const handleDeleteSession = (sessionId: string) => {
-    const tabsToClose = tabs.filter((t) => t.sessionId === sessionId);
-    for (const t of tabsToClose) {
-      void closeSession(t.id);
-    }
-    const newTabs = tabs.filter((t) => t.sessionId !== sessionId);
-    setTabs(newTabs);
-    if (tabsToClose.some((t) => t.id === activeTabId)) {
-      setActiveTabId(newTabs.length > 0 ? newTabs[newTabs.length - 1].id : '');
-    }
+    const session = sessions.find((s) => s.id === sessionId);
+
+    const belongsToSession = (t: TabType) => {
+      if (t.sessionId === sessionId) return true;
+      if (!session) return false;
+      if (t.sessionId && t.sessionId !== sessionId) return false;
+      if (t.title === session.name && t.protocol === session.protocol) return true;
+      if (
+        session.protocol === 'serial' &&
+        t.protocol === 'serial' &&
+        t.serialConfig?.path &&
+        t.serialConfig.path === session.serialConfig?.path
+      ) {
+        return true;
+      }
+      if (
+        session.protocol === 'ssh' &&
+        t.protocol === 'ssh' &&
+        t.sshConfig?.host === session.sshConfig?.host &&
+        t.sshConfig?.username === session.sshConfig?.username
+      ) {
+        return true;
+      }
+      return false;
+    };
+
+    setTabs((prev) => {
+      const closing = prev.filter(belongsToSession);
+      for (const t of closing) {
+        void closeSession(t.id);
+      }
+      const remaining = prev.filter((t) => !belongsToSession(t));
+      setActiveTabId((current) => {
+        if (remaining.some((t) => t.id === current)) return current;
+        return remaining.length > 0 ? remaining[remaining.length - 1].id : '';
+      });
+      return remaining;
+    });
+
     const updated = sessions.filter((s) => s.id !== sessionId);
     setSessions(updated);
     SessionStore.saveSessions(updated);
@@ -231,6 +262,7 @@ export const App: React.FC = () => {
     }
     const sftpTab: TabType = {
       id: `tab-sftp-${Date.now()}`,
+      sessionId: sourceTab.sessionId,
       title: `Files · ${sourceTab.title}`,
       protocol: 'ssh',
       status: 'connected',
@@ -269,8 +301,14 @@ export const App: React.FC = () => {
   };
 
   const handleLoadWorkspace = (ws: Workspace) => {
-    setTabs(ws.tabs);
+    setTabs((prev) => {
+      for (const t of prev) {
+        void closeSession(t.id);
+      }
+      return ws.tabs;
+    });
     setActiveTabId(ws.tabs[0]?.id || '');
+    setActiveLayoutId(ws.id);
   };
 
   const handleSaveWorkspace = (newWs: Workspace) => {
@@ -281,9 +319,27 @@ export const App: React.FC = () => {
   };
 
   const handleDeleteWorkspace = (wsId: string) => {
+    const ws = workspaces.find((w) => w.id === wsId);
     const updated = workspaces.filter((w) => w.id !== wsId);
     setWorkspaces(updated);
     WorkspaceStore.saveWorkspaces(updated);
+
+    if (!ws || activeLayoutId !== wsId) return;
+
+    const layoutTabIds = new Set(ws.tabs.map((t) => t.id));
+    setTabs((prev) => {
+      const closing = prev.filter((t) => layoutTabIds.has(t.id));
+      for (const t of closing) {
+        void closeSession(t.id);
+      }
+      const remaining = prev.filter((t) => !layoutTabIds.has(t.id));
+      setActiveTabId((current) => {
+        if (remaining.some((t) => t.id === current)) return current;
+        return remaining.length > 0 ? remaining[remaining.length - 1].id : '';
+      });
+      return remaining;
+    });
+    setActiveLayoutId(null);
   };
 
   const activeTab = tabs.find((t) => t.id === activeTabId);
@@ -543,6 +599,7 @@ export const App: React.FC = () => {
         onLoadWorkspace={handleLoadWorkspace}
         onSaveWorkspace={handleSaveWorkspace}
         onDeleteWorkspace={handleDeleteWorkspace}
+        onNotify={showToast}
       />
     </div>
   );

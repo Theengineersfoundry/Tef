@@ -32,6 +32,7 @@ import {
   openLocalSession,
   readClipboardText,
   resizeSession,
+  saveTextFile,
   setSessionBaud,
   writeClipboardText,
   writeSession,
@@ -62,7 +63,11 @@ export const TerminalTab: React.FC<TerminalTabProps> = ({
   const [isTimestampMode, setIsTimestampMode] = useState(tab.isTimestampMode || false);
   const [isLogging, setIsLogging] = useState(false);
   const [logSize, setLogSize] = useState(0);
+  const [logNotice, setLogNotice] = useState<string | null>(null);
   const sessionLogRef = useRef('');
+  const logPendingRef = useRef({ RX: '', TX: '' });
+  const logIdleTimerRef = useRef<number | null>(null);
+  const logNoticeTimerRef = useRef<number | null>(null);
   const isLoggingRef = useRef(false);
   isLoggingRef.current = isLogging;
   const [autoSuggestEnabled] = useState(true);
@@ -123,7 +128,7 @@ export const TerminalTab: React.FC<TerminalTabProps> = ({
         if (command.trim().length > 0) {
           AutoSuggestEngine.addHistory(command);
           const res = TerminalEngine.processShellInput(command);
-          if (res.output === '\x1bc') term.clear();
+          if (res.output === '\x1bc') wipeTerminal(term);
           else term.write(res.output);
         }
         term.write(`\x1b[36mPS C:\\Users\\Developer> \x1b[0m`);
@@ -255,6 +260,8 @@ export const TerminalTab: React.FC<TerminalTabProps> = ({
   };
 
   const isHexModeRef = useRef(isHexMode);
+  const hexPendingRef = useRef<number[]>([]);
+  const hexIdleTimerRef = useRef<number | null>(null);
   useEffect(() => {
     isHexModeRef.current = isHexMode;
   }, [isHexMode]);
@@ -270,10 +277,46 @@ export const TerminalTab: React.FC<TerminalTabProps> = ({
     autoScrollRef.current = autoScroll;
   }, [autoScroll]);
 
-  // Industry-Standard Helper to Normalize Serial RX Line Endings, HEX mode & Timestamps
+  const takeHexRows = (flushRemainder: boolean): string => {
+    const buf = hexPendingRef.current;
+    const complete = Math.floor(buf.length / 16) * 16;
+    const take = flushRemainder ? buf.length : complete;
+    if (take === 0) return '';
+    const rows = SerialManager.formatHexDumpFromBytes(buf.slice(0, take));
+    hexPendingRef.current = buf.slice(take);
+    return rows;
+  };
+
+  const scheduleHexIdleFlush = () => {
+    if (hexIdleTimerRef.current) window.clearTimeout(hexIdleTimerRef.current);
+    hexIdleTimerRef.current = window.setTimeout(() => {
+      hexIdleTimerRef.current = null;
+      const leftover = takeHexRows(true);
+      if (leftover) xtermRef.current?.write(leftover);
+    }, 40);
+  };
+
+  const flushPendingHexView = () => {
+    if (hexIdleTimerRef.current) {
+      window.clearTimeout(hexIdleTimerRef.current);
+      hexIdleTimerRef.current = null;
+    }
+    const leftover = takeHexRows(true);
+    if (leftover) xtermRef.current?.write(leftover);
+  };
+
+  // ASCII concatenates in xterm. Hex must wait for a full 16-byte row or a short idle
+  // so USB packet splits (O then n) do not become two dump lines.
   const formatIncomingSerialData = (rawText: string): string => {
     if (isHexModeRef.current) {
-      return SerialManager.format16ByteHexDump(rawText);
+      hexPendingRef.current.push(...SerialManager.textToBytes(rawText));
+      const rows = takeHexRows(false);
+      if (hexPendingRef.current.length > 0) scheduleHexIdleFlush();
+      else if (hexIdleTimerRef.current) {
+        window.clearTimeout(hexIdleTimerRef.current);
+        hexIdleTimerRef.current = null;
+      }
+      return rows;
     }
 
     let formatted = rawText.replace(/\r?\n/g, '\r\n');
@@ -292,21 +335,66 @@ export const TerminalTab: React.FC<TerminalTabProps> = ({
       .replace(/\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)/g, '')
       .replace(/\x1b./g, '');
 
-  const appendSessionLog = (chunk: string, direction?: 'TX' | 'RX') => {
-    if (!isLoggingRef.current || !chunk) return;
-    const plain = stripAnsi(chunk);
-    if (!plain) return;
+  const showLogNotice = (message: string) => {
+    setLogNotice(message);
+    if (logNoticeTimerRef.current) window.clearTimeout(logNoticeTimerRef.current);
+    logNoticeTimerRef.current = window.setTimeout(() => {
+      logNoticeTimerRef.current = null;
+      setLogNotice(null);
+    }, 2800);
+  };
 
+  const buildLogHeader = () =>
+    `--- Tef Session Log ---\n` +
+    `Session: ${tab.title}\n` +
+    `Protocol: ${tab.protocol}\n` +
+    `Started: ${new Date().toISOString()}\n` +
+    `---\n`;
+
+  const writeLogLine = (direction: 'TX' | 'RX' | '', line: string) => {
     const stamp = new Date().toISOString().slice(11, 23);
     const prefix = direction ? `[${stamp}] ${direction} ` : '';
-    sessionLogRef.current += prefix + plain.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
-
-    // Cap ~2MB of text so long sessions don't exhaust memory
+    sessionLogRef.current += `${prefix}${line}\n`;
     const maxChars = 2_000_000;
     if (sessionLogRef.current.length > maxChars) {
       sessionLogRef.current = sessionLogRef.current.slice(-maxChars);
     }
     setLogSize(sessionLogRef.current.length);
+  };
+
+  const flushLogRemainder = () => {
+    (['RX', 'TX'] as const).forEach((dir) => {
+      const leftover = logPendingRef.current[dir];
+      if (!leftover) return;
+      logPendingRef.current[dir] = '';
+      writeLogLine(dir, leftover);
+    });
+  };
+
+  const appendSessionLog = (chunk: string, direction?: 'TX' | 'RX') => {
+    if (!isLoggingRef.current || !chunk) return;
+    const plain = stripAnsi(chunk).replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+    if (!plain) return;
+
+    const dir = direction ?? 'RX';
+    let buf = logPendingRef.current[dir] + plain;
+    let nl = buf.indexOf('\n');
+    while (nl >= 0) {
+      writeLogLine(dir, buf.slice(0, nl));
+      buf = buf.slice(nl + 1);
+      nl = buf.indexOf('\n');
+    }
+    logPendingRef.current[dir] = buf;
+
+    if (logIdleTimerRef.current) window.clearTimeout(logIdleTimerRef.current);
+    if (buf) {
+      logIdleTimerRef.current = window.setTimeout(() => {
+        logIdleTimerRef.current = null;
+        flushLogRemainder();
+      }, 80);
+    } else {
+      logIdleTimerRef.current = null;
+    }
   };
 
   const closeSerialSocket = () => {
@@ -902,7 +990,7 @@ export const TerminalTab: React.FC<TerminalTabProps> = ({
             AutoSuggestEngine.addHistory(command);
             const res = TerminalEngine.processShellInput(command);
             if (res.output === '\x1bc') {
-              term.clear();
+              wipeTerminal(term);
             } else {
               term.write(res.output);
             }
@@ -993,8 +1081,38 @@ export const TerminalTab: React.FC<TerminalTabProps> = ({
     });
   }, [isActive, tab.id]);
 
+  const wipeTerminal = (term: Terminal) => {
+    const scrollback = term.options.scrollback ?? 10000;
+    // Drop scrollback lines, then reset. CSI 3J is not enough in xterm 5.
+    term.options.scrollback = 0;
+    term.reset();
+    term.clear();
+    term.options.scrollback = scrollback;
+    term.write('\x1b[2J\x1b[3J\x1b[H');
+    term.scrollToTop();
+  };
+
   const handleClear = () => {
-    xtermRef.current?.clear();
+    const term = xtermRef.current;
+    if (!term) return;
+    if (hexIdleTimerRef.current) {
+      window.clearTimeout(hexIdleTimerRef.current);
+      hexIdleTimerRef.current = null;
+    }
+    hexPendingRef.current = [];
+    wipeTerminal(term);
+
+    if (tab.protocol === 'local' && isTauriRuntime()) {
+      sendSessionData({ data: 'Clear-Host\r' });
+      return;
+    }
+    if (tab.protocol === 'ssh' && isTauriRuntime()) {
+      sendSessionData({ data: '\r' });
+      return;
+    }
+    if (tab.protocol === 'local') {
+      term.write(`\x1b[36mPS C:\\Users\\Developer> \x1b[0m`);
+    }
   };
 
   const connectLocalShell = (term: Terminal) => {
@@ -1297,13 +1415,16 @@ export const TerminalTab: React.FC<TerminalTabProps> = ({
     setIsLogging(next);
     isLoggingRef.current = next;
 
+    if (!next) {
+      if (logIdleTimerRef.current) {
+        window.clearTimeout(logIdleTimerRef.current);
+        logIdleTimerRef.current = null;
+      }
+      flushLogRemainder();
+    }
+
     if (next && sessionLogRef.current.length === 0) {
-      sessionLogRef.current =
-        `--- Tef Session Log ---\n` +
-        `Session: ${tab.title}\n` +
-        `Protocol: ${tab.protocol}\n` +
-        `Started: ${new Date().toISOString()}\n` +
-        `---\n`;
+      sessionLogRef.current = buildLogHeader();
       setLogSize(sessionLogRef.current.length);
     }
 
@@ -1313,27 +1434,46 @@ export const TerminalTab: React.FC<TerminalTabProps> = ({
   };
 
   const handleDownloadLog = () => {
+    if (logIdleTimerRef.current) {
+      window.clearTimeout(logIdleTimerRef.current);
+      logIdleTimerRef.current = null;
+    }
+    flushLogRemainder();
+
+    const savedLen = sessionLogRef.current.length;
     const body = sessionLogRef.current.trim();
     if (!body) {
-      xtermRef.current?.write(
-        `\r\n\x1b[33m[Tef] No session log yet. Turn on Log, then send/receive some data.\x1b[0m\r\n`
-      );
+      showLogNotice('No session log yet. Turn on Log first.');
       return;
     }
 
-    const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+    const now = new Date();
+    const pad = (n: number) => String(n).padStart(2, '0');
+    const stamp = `${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}_${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}`;
     const safeName = tab.title.replace(/[^\w.-]+/g, '_');
     const logData =
       (body.endsWith('\n') ? body : `${body}\n`) +
       `\n--- End of log · downloaded ${new Date().toISOString()} ---\n`;
 
-    const blob = new Blob([logData], { type: 'text/plain;charset=utf-8' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = `tef_${safeName}_${stamp}.log`;
-    link.click();
-    URL.revokeObjectURL(url);
+    showLogNotice('Saving session log…');
+    void (async () => {
+      await new Promise<void>((resolve) => {
+        requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
+      });
+      try {
+        const saved = await saveTextFile(`tef_${safeName}_${stamp}.log`, logData);
+        if (!saved) {
+          showLogNotice('Save cancelled');
+          return;
+        }
+        const leftover = sessionLogRef.current.slice(savedLen);
+        sessionLogRef.current = isLoggingRef.current ? buildLogHeader() + leftover : leftover;
+        setLogSize(sessionLogRef.current.length);
+        showLogNotice('Session log downloaded');
+      } catch {
+        showLogNotice('Could not save the log file');
+      }
+    })();
   };
 
   return (
@@ -1409,6 +1549,8 @@ export const TerminalTab: React.FC<TerminalTabProps> = ({
               <button
                 onClick={() => {
                   const nextMode = !isHexMode;
+                  if (!nextMode) flushPendingHexView();
+                  else hexPendingRef.current = [];
                   setIsHexMode(nextMode);
                   xtermRef.current?.write(`\r\n\x1b[90m[Tef] ${nextMode ? 'HEX' : 'ASCII'} view\x1b[0m\r\n`);
                 }}
@@ -1446,6 +1588,7 @@ export const TerminalTab: React.FC<TerminalTabProps> = ({
             Scroll
           </button>
 
+          <div className="tb-log-cluster">
           <button
             onClick={handleToggleLogging}
             className={`tb-btn ${isLogging ? 'is-on' : ''}`}
@@ -1483,6 +1626,8 @@ export const TerminalTab: React.FC<TerminalTabProps> = ({
           >
             <Download className="w-3.5 h-3.5" />
           </button>
+          {logNotice && <div className="tb-action-notice">{logNotice}</div>}
+          </div>
 
           {tab.status === 'connected' ? (
             <button onClick={handleDisconnect} className="tb-btn tb-btn-danger ml-1" title="Disconnect">
@@ -1532,9 +1677,9 @@ export const TerminalTab: React.FC<TerminalTabProps> = ({
               title={serialTxMode === 'HEX' ? 'Line ending applies in ASCII mode only — include 0D/0A in hex if needed' : 'Line ending'}
               style={serialTxMode === 'HEX' ? { opacity: 0.45 } : undefined}
             >
-              <option value="CRLF">CRLF</option>
-              <option value="LF">LF</option>
-              <option value="CR">CR</option>
+              <option value="CRLF">CRLF (\r\n)</option>
+              <option value="LF">LF (\n)</option>
+              <option value="CR">CR (\r)</option>
               <option value="NONE">NONE</option>
             </select>
             <input

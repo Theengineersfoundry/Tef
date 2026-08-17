@@ -194,6 +194,66 @@ export async function readClipboardText(): Promise<string> {
   return navigator.clipboard.readText();
 }
 
+/** Save text via native Save As (Tauri) or a browser download. Returns false if cancelled. */
+export async function saveTextFile(defaultName: string, contents: string): Promise<boolean> {
+  if (isTauriRuntime()) {
+    try {
+      await invokeTauri('save_text_file', { defaultName, contents });
+      return true;
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      if (message.toLowerCase().includes('cancelled')) return false;
+      throw err;
+    }
+  }
+  const blob = new Blob([contents], { type: 'text/plain;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = defaultName;
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  URL.revokeObjectURL(url);
+  return true;
+}
+
+/** Open a .json file via native picker (Tauri) or a hidden file input. Returns null if cancelled. */
+export async function pickJsonFile(): Promise<string | null> {
+  if (isTauriRuntime()) {
+    try {
+      return await invokeTauri<string>('pick_json_file');
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      if (message.toLowerCase().includes('cancelled')) return null;
+      throw err;
+    }
+  }
+
+  return new Promise((resolve, reject) => {
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = '.json,application/json';
+    input.onchange = () => {
+      const file = input.files?.[0];
+      if (!file) {
+        resolve(null);
+        return;
+      }
+      if (!file.name.toLowerCase().endsWith('.json')) {
+        reject(new Error('Only .json files are allowed'));
+        return;
+      }
+      const reader = new FileReader();
+      reader.onload = () => resolve(String(reader.result ?? ''));
+      reader.onerror = () => reject(new Error('Could not read the file'));
+      reader.readAsText(file);
+    };
+    input.oncancel = () => resolve(null);
+    input.click();
+  });
+}
+
 export async function localList(path?: string): Promise<{ path: string; files: any[] }> {
   if (isTauriRuntime()) {
     return invokeTauri('local_list', { path: path ?? null });

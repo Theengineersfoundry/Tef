@@ -1,17 +1,57 @@
+const COMMON_LINUX_COMMANDS = [
+  'ls',
+  'ls -la',
+  'cd',
+  'pwd',
+  'cat',
+  'less',
+  'head',
+  'tail',
+  'tail -f',
+  'grep',
+  'find',
+  'cp',
+  'mv',
+  'rm',
+  'mkdir',
+  'touch',
+  'chmod',
+  'chown',
+  'ps',
+  'top',
+  'df -h',
+  'du -h',
+  'free -h',
+  'uname -a',
+  'whoami',
+  'clear',
+  'nano',
+  'vim',
+  'sudo',
+  'apt update',
+  'apt upgrade',
+  'systemctl status',
+  'systemctl restart',
+  'journalctl -u',
+  'ip a',
+  'ss -tulpn',
+  'ping',
+  'curl',
+  'wget',
+  'scp',
+  'ssh',
+  'git status',
+  'git pull',
+  'python3',
+];
+
+const FILE_VERBS =
+  /^(cd|cat|less|head|tail|grep|find|cp|mv|rm|mkdir|touch|chmod|chown|nano|vim|sudo(?:\s+nano)?|python3|ls|scp|\.\/)\s+(.*)$/i;
+
 export class AutoSuggestEngine {
   private static dynamicFiles: string[] = [];
-  private static commandHistory: string[] = [
-    'cd rpi_vend_ui',
-    'python3 main.py',
-    'sudo systemctl restart vend',
-    'ls -la',
-    'git status',
-    'cat config.json',
-    'npm start',
-    'sudo nano /etc/network/interfaces',
-  ];
+  private static commandHistory: string[] = [];
 
-  // Index real filenames received from remote terminal output
   static indexRemoteOutput(output: string): void {
     const tokens = output.split(/[\s\r\n\t]+/).filter(Boolean);
     tokens.forEach((t) => {
@@ -24,7 +64,6 @@ export class AutoSuggestEngine {
     });
   }
 
-  // Add newly executed command to history index
   static addHistory(command: string): void {
     const trimmed = command.trim();
     if (trimmed && !this.commandHistory.includes(trimmed)) {
@@ -42,17 +81,19 @@ export class AutoSuggestEngine {
 
     const lowerPrefix = prefix.toLowerCase();
 
-    // 1. Full-line history match (e.g. "git st" → "atus")
-    for (const cmd of this.commandHistory) {
-      if (cmd.toLowerCase().startsWith(lowerPrefix) && cmd.length > prefix.length) {
-        return cmd.slice(prefix.length);
+    const fromList = (list: string[]): string | null => {
+      for (const cmd of list) {
+        if (cmd.toLowerCase().startsWith(lowerPrefix) && cmd.length > prefix.length) {
+          return cmd.slice(prefix.length);
+        }
       }
-    }
+      return null;
+    };
 
-    // 2. Path / filename after a known command verb
-    const lastWordMatch = prefix.match(
-      /^(cd|sudo\s+nano|nano|vim|sudo|python3|cat|ls|chmod\s+\+x|\.\/)\s+(.*)$/i
-    );
+    const historyHit = fromList(this.commandHistory);
+    if (historyHit) return historyHit;
+
+    const lastWordMatch = prefix.match(FILE_VERBS);
     if (lastWordMatch) {
       const filePrefix = lastWordMatch[2];
       const lowerFile = filePrefix.toLowerCase();
@@ -64,7 +105,6 @@ export class AutoSuggestEngine {
       }
     }
 
-    // 3. Complete the last token against history command tokens
     const tokenMatch = prefix.match(/^(.*?)([^\s]+)$/);
     if (tokenMatch) {
       const before = tokenMatch[1];
@@ -74,7 +114,6 @@ export class AutoSuggestEngine {
       for (const cmd of this.commandHistory) {
         for (const part of cmd.split(/\s+/)) {
           if (part.toLowerCase().startsWith(lowerToken) && part.length > token.length) {
-            // Prefer when the leading part of history matches what was typed before the token
             if (!before || cmd.toLowerCase().startsWith(before.toLowerCase().trimStart())) {
               return part.slice(token.length);
             }
@@ -83,6 +122,6 @@ export class AutoSuggestEngine {
       }
     }
 
-    return null;
+    return fromList(COMMON_LINUX_COMMANDS);
   }
 }

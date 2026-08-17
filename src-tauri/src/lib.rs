@@ -23,6 +23,8 @@ pub fn run() {
       commands::session_close,
       commands::clipboard_write,
       commands::clipboard_read,
+      commands::save_text_file,
+      commands::pick_json_file,
       commands::local_list,
       commands::sftp_list,
       commands::sftp_upload,
