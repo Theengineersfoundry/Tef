@@ -376,14 +376,16 @@ export const App: React.FC = () => {
           toggleMaximize();
         }}
       >
-        <img
-          src="/tef-logo.png"
-          alt="Tef"
-          title="Tef"
-          data-tauri-drag-region
-          className="w-7 h-7 rounded-full shrink-0 object-cover"
-          draggable={false}
-        />
+        {os !== 'macos' && os !== 'linux' && (
+          <img
+            src="/tef-logo.png"
+            alt="Tef"
+            title="Tef"
+            data-tauri-drag-region
+            className="w-7 h-7 rounded-full shrink-0 object-cover"
+            draggable={false}
+          />
+        )}
 
         <div className="app-chrome-tabs" data-tauri-drag-region="false">
           {tabs.map((tab) => {
