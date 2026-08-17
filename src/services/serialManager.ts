@@ -1,24 +1,35 @@
 export class SerialManager {
-  // Format incoming raw string/bytes into 16-byte hex rows with xterm ANSI colors
-  static format16ByteHexDump(input: string): string {
-    const bytes = new TextEncoder().encode(input);
+  static textToBytes(input: string): number[] {
+    const bytes: number[] = [];
+    for (let i = 0; i < input.length; i++) {
+      bytes.push(input.charCodeAt(i) & 0xff);
+    }
+    return bytes;
+  }
+
+  static formatHexDumpFromBytes(bytes: number[]): string {
+    if (bytes.length === 0) return '';
     let result = '';
 
     for (let i = 0; i < bytes.length; i += 16) {
       const chunk = bytes.slice(i, i + 16);
-      const hexRow = Array.from(chunk)
+      const hexRow = chunk
         .map((b) => b.toString(16).padStart(2, '0').toUpperCase())
         .join(' ');
 
-      const asciiRow = Array.from(chunk)
+      const asciiRow = chunk
         .map((b) => (b >= 32 && b <= 126 ? String.fromCharCode(b) : '.'))
         .join('');
 
-      const paddedHex = hexRow.padEnd(48, ' ');
+      const paddedHex = hexRow.padEnd(47, ' ');
       result += `\x1b[33m${paddedHex}\x1b[0m  \x1b[36m|${asciiRow}|\x1b[0m\r\n`;
     }
 
     return result;
+  }
+
+  static format16ByteHexDump(input: string): string {
+    return this.formatHexDumpFromBytes(this.textToBytes(input));
   }
 
   /** Append the selected TX line ending (ASCII mode only). */

@@ -127,20 +127,109 @@ pub fn clipboard_read() -> Result<String, String> {
     .map_err(|e| e.to_string())
 }
 
-/// Native Save As dialog — browser <a download> does nothing in Tauri WebView.
+/// Native Save As — must run on the UI thread or Windows reports "File not found".
+/// Async so the webview can paint "Saving…" before the dialog blocks.
 #[tauri::command]
-pub fn save_text_file(default_name: String, contents: String) -> Result<String, String> {
-  let ext = std::path::Path::new(&default_name)
+pub async fn save_text_file(
+  app: tauri::AppHandle,
+  default_name: String,
+  contents: String,
+) -> Result<String, String> {
+  tokio::task::spawn_blocking(move || save_text_file_on_ui_thread(app, default_name, contents))
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+fn save_text_file_on_ui_thread(
+  app: tauri::AppHandle,
+  default_name: String,
+  contents: String,
+) -> Result<String, String> {
+  use tauri::Manager;
+
+  let safe_name: String = default_name
+    .chars()
+    .map(|c| {
+      if c.is_ascii_alphanumeric() || c == '.' || c == '-' || c == '_' {
+        c
+      } else {
+        '_'
+      }
+    })
+    .collect();
+  let ext = std::path::Path::new(&safe_name)
     .extension()
     .and_then(|s| s.to_str())
-    .unwrap_or("txt");
-  let path = rfd::FileDialog::new()
-    .set_file_name(&default_name)
-    .add_filter(ext.to_ascii_uppercase(), &[ext])
-    .save_file()
+    .unwrap_or("txt")
+    .to_string();
+
+  let window = app
+    .get_webview_window("main")
+    .ok_or_else(|| "Window not found".to_string())?;
+
+  let (tx, rx) = std::sync::mpsc::channel();
+  window
+    .run_on_main_thread(move || {
+      let mut dialog = rfd::FileDialog::new().set_file_name(&safe_name);
+      if let Some(dir) = dirs::download_dir().or_else(dirs::document_dir) {
+        dialog = dialog.set_directory(dir);
+      }
+      let path = dialog
+        .add_filter("All files", &["*"])
+        .add_filter(&ext, &[&ext])
+        .save_file();
+      let _ = tx.send(path);
+    })
+    .map_err(|e| e.to_string())?;
+
+  let path = rx
+    .recv()
+    .map_err(|e| e.to_string())?
     .ok_or_else(|| "cancelled".to_string())?;
   std::fs::write(&path, contents).map_err(|e| e.to_string())?;
   Ok(path.to_string_lossy().into_owned())
+}
+
+#[tauri::command]
+pub async fn pick_json_file(app: tauri::AppHandle) -> Result<String, String> {
+  tokio::task::spawn_blocking(move || pick_json_file_on_ui_thread(app))
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+fn pick_json_file_on_ui_thread(app: tauri::AppHandle) -> Result<String, String> {
+  use tauri::Manager;
+
+  let window = app
+    .get_webview_window("main")
+    .ok_or_else(|| "Window not found".to_string())?;
+
+  let (tx, rx) = std::sync::mpsc::channel();
+  window
+    .run_on_main_thread(move || {
+      let mut dialog = rfd::FileDialog::new().add_filter("JSON", &["json"]);
+      if let Some(dir) = dirs::download_dir().or_else(dirs::document_dir) {
+        dialog = dialog.set_directory(dir);
+      }
+      let _ = tx.send(dialog.pick_file());
+    })
+    .map_err(|e| e.to_string())?;
+
+  let path = rx
+    .recv()
+    .map_err(|e| e.to_string())?
+    .ok_or_else(|| "cancelled".to_string())?;
+
+  let ext = path
+    .extension()
+    .and_then(|s| s.to_str())
+    .unwrap_or("")
+    .to_ascii_lowercase();
+  if ext != "json" {
+    return Err("Only .json files are allowed".to_string());
+  }
+
+  std::fs::read_to_string(&path).map_err(|e| e.to_string())
 }
 
 #[tauri::command]

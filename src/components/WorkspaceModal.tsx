@@ -1,8 +1,8 @@
 import React, { useState } from 'react';
-import { X, Layers, Plus, Download, Upload, Trash2, Play } from 'lucide-react';
+import { X, Layers, Plus, Download, Upload, Trash2, Play, FolderOpen } from 'lucide-react';
 import type { Workspace, TerminalTab } from '../types/terminal';
 import { WorkspaceStore } from '../services/workspaceStore';
-import { isTauriRuntime, saveTextFile } from '../services/sessionBackend';
+import { saveTextFile, pickJsonFile } from '../services/sessionBackend';
 
 interface WorkspaceModalProps {
   isOpen: boolean;
@@ -12,6 +12,7 @@ interface WorkspaceModalProps {
   onLoadWorkspace: (workspace: Workspace) => void;
   onSaveWorkspace: (workspace: Workspace) => void;
   onDeleteWorkspace: (workspaceId: string) => void;
+  onNotify?: (message: string) => void;
 }
 
 export const WorkspaceModal: React.FC<WorkspaceModalProps> = ({
@@ -22,6 +23,7 @@ export const WorkspaceModal: React.FC<WorkspaceModalProps> = ({
   onLoadWorkspace,
   onSaveWorkspace,
   onDeleteWorkspace,
+  onNotify,
 }) => {
   const [isCreating, setIsCreating] = useState(false);
   const [name, setName] = useState('');
@@ -53,25 +55,40 @@ export const WorkspaceModal: React.FC<WorkspaceModalProps> = ({
     const json = WorkspaceStore.exportWorkspaceJSON(ws);
     const filename = `workspace_${ws.name.replace(/\s+/g, '_')}.json`;
     try {
-      await saveTextFile(filename, json);
+      const saved = await saveTextFile(filename, json);
+      onNotify?.(saved ? 'Layout downloaded' : 'Save cancelled');
     } catch {
-      if (!isTauriRuntime()) {
-        alert('Could not download the layout file.');
-      }
+      onNotify?.('Could not download the layout file.');
     }
+  };
+
+  const applyImportedJson = (raw: string) => {
+    const imported = WorkspaceStore.parseWorkspaceJSON(raw);
+    if (!imported) {
+      onNotify?.('Invalid layout JSON. Use a .json layout export.');
+      return false;
+    }
+    onSaveWorkspace(imported);
+    setImportJsonText('');
+    setIsImporting(false);
+    onNotify?.(`Imported layout “${imported.name}”`);
+    return true;
   };
 
   const handleImportSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!importJsonText.trim()) return;
+    applyImportedJson(importJsonText);
+  };
 
-    const imported = WorkspaceStore.parseWorkspaceJSON(importJsonText);
-    if (imported) {
-      onSaveWorkspace(imported);
-      setImportJsonText('');
-      setIsImporting(false);
-    } else {
-      alert('Invalid workspace JSON format.');
+  const handlePickJsonFile = async () => {
+    try {
+      const text = await pickJsonFile();
+      if (text == null) return;
+      applyImportedJson(text);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      onNotify?.(message || 'Could not open the JSON file.');
     }
   };
 
@@ -186,17 +203,29 @@ export const WorkspaceModal: React.FC<WorkspaceModalProps> = ({
                 </button>
               </div>
 
+              <button
+                type="button"
+                className="btn-ide-secondary w-full"
+                onClick={() => void handlePickJsonFile()}
+              >
+                <FolderOpen className="w-3.5 h-3.5" />
+                Choose .json file
+              </button>
+
+              <p className="text-[12px] text-center" style={{ color: 'var(--text-faint)' }}>
+                or paste JSON below
+              </p>
+
               <textarea
                 rows={4}
-                required
-                placeholder="Paste workspace JSON here..."
+                placeholder="Paste layout JSON here…"
                 value={importJsonText}
                 onChange={(e) => setImportJsonText(e.target.value)}
                 className="font-mono text-[12px]"
               />
 
-              <button type="submit" className="btn-ide-primary w-full">
-                Import
+              <button type="submit" className="btn-ide-primary w-full" disabled={!importJsonText.trim()}>
+                Import pasted JSON
               </button>
             </form>
           )}

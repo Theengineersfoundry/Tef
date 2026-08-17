@@ -218,6 +218,42 @@ export async function saveTextFile(defaultName: string, contents: string): Promi
   return true;
 }
 
+/** Open a .json file via native picker (Tauri) or a hidden file input. Returns null if cancelled. */
+export async function pickJsonFile(): Promise<string | null> {
+  if (isTauriRuntime()) {
+    try {
+      return await invokeTauri<string>('pick_json_file');
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      if (message.toLowerCase().includes('cancelled')) return null;
+      throw err;
+    }
+  }
+
+  return new Promise((resolve, reject) => {
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = '.json,application/json';
+    input.onchange = () => {
+      const file = input.files?.[0];
+      if (!file) {
+        resolve(null);
+        return;
+      }
+      if (!file.name.toLowerCase().endsWith('.json')) {
+        reject(new Error('Only .json files are allowed'));
+        return;
+      }
+      const reader = new FileReader();
+      reader.onload = () => resolve(String(reader.result ?? ''));
+      reader.onerror = () => reject(new Error('Could not read the file'));
+      reader.readAsText(file);
+    };
+    input.oncancel = () => resolve(null);
+    input.click();
+  });
+}
+
 export async function localList(path?: string): Promise<{ path: string; files: any[] }> {
   if (isTauriRuntime()) {
     return invokeTauri('local_list', { path: path ?? null });
