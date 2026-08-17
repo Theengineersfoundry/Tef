@@ -112,19 +112,33 @@ export const SessionModal: React.FC<SessionModalProps> = ({
 
   const scanPorts = async (preferredPath?: string) => {
     setIsScanning(true);
-    const ports = await TerminalEngine.scanSerialPorts();
-    setAvailablePorts(ports);
-    if (ports.length > 0) {
-      const preferred = preferredPath ? ports.find((p) => p.path === preferredPath) : undefined;
-      const validPort = preferred || ports.find((p) => p.available) || ports[0];
-      setSelectedPort(validPort.path);
-    } else if (preferredPath) {
-      setSelectedPort(preferredPath);
-    } else {
-      setSelectedPort('');
+    try {
+      const ports = await TerminalEngine.scanSerialPorts();
+      setAvailablePorts(ports);
+      if (ports.length > 0) {
+        const preferred = preferredPath ? ports.find((p) => p.path === preferredPath) : undefined;
+        const validPort = preferred || ports.find((p) => p.available) || ports[0];
+        setSelectedPort(validPort.path);
+      } else if (preferredPath) {
+        setSelectedPort(preferredPath);
+      } else {
+        setSelectedPort('');
+      }
+    } catch {
+      if (preferredPath) setSelectedPort(preferredPath);
+    } finally {
+      setIsScanning(false);
     }
-    setIsScanning(false);
   };
+
+  useEffect(() => {
+    if (!isOpen) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [isOpen, onClose]);
 
   useEffect(() => {
     if (!isOpen) return;
@@ -213,15 +227,24 @@ export const SessionModal: React.FC<SessionModalProps> = ({
   };
 
   return (
-    <div className="modal-backdrop">
-      <div className="modal-card session-modal max-w-lg">
+    <div
+      className="modal-backdrop"
+      onMouseDown={(e) => {
+        if (e.target === e.currentTarget) e.stopPropagation();
+      }}
+    >
+      <div
+        className="modal-card session-modal max-w-lg"
+        onMouseDown={(e) => e.stopPropagation()}
+        onClick={(e) => e.stopPropagation()}
+      >
         <div className="modal-header">
           <div>
             <h2 className="font-semibold text-[15px]" style={{ color: 'var(--text-bright)' }}>
               {isEditing ? 'Edit connection' : 'New connection'}
             </h2>
           </div>
-          <button onClick={onClose} className="btn-ghost" title="Close" style={{ width: 28, height: 28, padding: 0 }}>
+          <button onClick={onClose} type="button" className="btn-ghost" title="Close" style={{ width: 28, height: 28, padding: 0 }}>
             <X className="w-3.5 h-3.5" />
           </button>
         </div>

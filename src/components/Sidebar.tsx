@@ -367,9 +367,12 @@ export const Sidebar: React.FC<SidebarProps> = ({
             <button
               type="button"
               className="ctx-menu-item"
-              onClick={() => {
-                onEditSession(contextMenu.session);
+              onClick={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                const session = contextMenu.session;
                 setContextMenu(null);
+                onEditSession(session);
               }}
             >
               <span className="ctx-menu-item-left">

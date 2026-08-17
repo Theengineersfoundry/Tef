@@ -7,6 +7,7 @@ mod local_shell;
 mod sftp;
 
 use state::AppState;
+use tauri::Manager;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -31,6 +32,30 @@ pub fn run() {
       commands::sftp_download,
       commands::sftp_chmod,
     ])
-    .run(tauri::generate_context!())
-    .expect("error while running Tef");
+    .on_window_event(|window, event| {
+      if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+        // macOS: red traffic light hides; app stays in the Dock (Cmd+Q quits).
+        if cfg!(target_os = "macos") {
+          api.prevent_close();
+          let _ = window.hide();
+        }
+      }
+    })
+    .build(tauri::generate_context!())
+    .expect("error while building Tef")
+    .run(|app, event| {
+      #[cfg(target_os = "macos")]
+      if let tauri::RunEvent::Reopen {
+        has_visible_windows, ..
+      } = &event
+      {
+        if !has_visible_windows {
+          if let Some(w) = app.get_webview_window("main") {
+            let _ = w.show();
+            let _ = w.set_focus();
+          }
+        }
+      }
+      let _ = (app, event);
+    });
 }
