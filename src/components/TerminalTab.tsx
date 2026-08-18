@@ -275,7 +275,9 @@ export const TerminalTab: React.FC<TerminalTabProps> = ({
     };
   };
 
-  /** Fit xterm to its host and trim rows/cols when metrics exceed the viewport. */
+  const XTERM_SCROLLBAR_GUTTER_PX = 14;
+
+  /** Fit xterm while reserving space for its scrollbar and high-DPI row rounding. */
   const fitTerminalToHost = (term: Terminal, fitAddon: FitAddon, host: HTMLElement | null) => {
     if (!host || host.clientWidth < 24 || host.clientHeight < 24) return;
     try {
@@ -288,17 +290,23 @@ export const TerminalTab: React.FC<TerminalTabProps> = ({
     const metrics = getTermCellMetrics(term);
     if (!xtermEl || !metrics) return;
 
+    const availWidth = xtermEl.clientWidth - XTERM_SCROLLBAR_GUTTER_PX;
     const availHeight = xtermEl.clientHeight;
-    if (availHeight <= 0) return;
+    if (availWidth <= 0 || availHeight <= 0) return;
 
-    // Leave a little slack so the last row is not clipped on high-DPI displays.
+    // The WebView scrollbar overlays its content. Remove columns that would sit
+    // underneath it, and leave a little row slack for high-DPI rounding.
+    let cols = term.cols;
+    while (cols > 2 && cols * metrics.cellWidth > availWidth - 1) {
+      cols -= 1;
+    }
     let rows = term.rows;
     while (rows > 2 && rows * metrics.cellHeight > availHeight - 1) {
       rows -= 1;
     }
 
-    if (rows !== term.rows) {
-      term.resize(rows, term.cols);
+    if (cols !== term.cols || rows !== term.rows) {
+      term.resize(cols, rows);
     }
   };
 

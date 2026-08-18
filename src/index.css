@@ -1233,21 +1233,24 @@ button {
   --xterm-scrollbar-size: 14px;
   position: relative;
 }
-.xterm-viewport {
+.xterm .xterm-viewport {
   background-color: #0e0e11 !important;
   overflow-y: scroll !important;
   overscroll-behavior: contain;
-  scrollbar-width: thin;
-  scrollbar-color: #7a7680 #0e0e11;
+  /* Keep WebView2 from replacing the 14px custom scrollbar with a thin one. */
+  scrollbar-width: auto;
+  scrollbar-color: auto;
 }
-.xterm-viewport::-webkit-scrollbar {
+.xterm .xterm-viewport::-webkit-scrollbar {
   width: var(--xterm-scrollbar-size);
+  cursor: default;
 }
-.xterm-viewport::-webkit-scrollbar-track {
+.xterm .xterm-viewport::-webkit-scrollbar-track {
   background: #0e0e11;
   margin: 2px 0;
+  cursor: default;
 }
-.xterm-viewport::-webkit-scrollbar-thumb {
+.xterm .xterm-viewport::-webkit-scrollbar-thumb {
   background: #6f6b75;
   border-radius: 7px;
   border: 3px solid #0e0e11;
@@ -1255,12 +1258,12 @@ button {
   min-height: 48px;
   cursor: default;
 }
-.xterm-viewport::-webkit-scrollbar-thumb:hover {
+.xterm .xterm-viewport::-webkit-scrollbar-thumb:hover {
   background: #949099;
   border: 2px solid #0e0e11;
   background-clip: padding-box;
 }
-.xterm-viewport::-webkit-scrollbar-thumb:active {
+.xterm .xterm-viewport::-webkit-scrollbar-thumb:active {
   background: #b0acb6;
   border: 2px solid #0e0e11;
   background-clip: padding-box;
