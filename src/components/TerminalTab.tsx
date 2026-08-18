@@ -352,7 +352,7 @@ export const TerminalTab: React.FC<TerminalTabProps> = ({
   };
 
   const buildLogHeader = () =>
-    `--- Tef Session Log ---\n` +
+    `--- SSHark Session Log ---\n` +
     `Session: ${tab.title}\n` +
     `Protocol: ${tab.protocol}\n` +
     `Started: ${new Date().toISOString()}\n` +
@@ -458,7 +458,7 @@ export const TerminalTab: React.FC<TerminalTabProps> = ({
     closeSerialSocket();
     onUpdateTabStatus(tab.id, 'disconnected');
     if (xtermRef.current) {
-      xtermRef.current.write('\r\n\x1b[1;31m--- [Tef] Disconnected ---\x1b[0m\r\n');
+      xtermRef.current.write('\r\n\x1b[31mDisconnected.\x1b[0m\r\n');
     }
   };
 
@@ -501,7 +501,7 @@ export const TerminalTab: React.FC<TerminalTabProps> = ({
     if (isTauriRuntime()) {
       void setSessionBaud(tab.id, newBaud).catch((err) => {
         const message = err instanceof Error ? err.message : String(err);
-        xtermRef.current?.write(`\r\n\x1b[33m[Tef] ${message}\x1b[0m\r\n`);
+        xtermRef.current?.write(`\r\n\x1b[33m${message}\x1b[0m\r\n`);
       });
       return;
     }
@@ -562,10 +562,6 @@ export const TerminalTab: React.FC<TerminalTabProps> = ({
     const epoch = serialConnectEpochRef.current;
     const quiet = silent;
 
-    if (!quiet) {
-      term.write(`\x1b[35m[Tef Serial Core] Opening real physical COM port ${comPath} at ${currentBaudRate} bps...\x1b[0m\r\n`);
-    }
-
     // ── Tauri desktop path (Rust serial backend) ──
     if (isTauriRuntime()) {
       tauriUnsubRef.current = onSessionEvent((msg: SessionEvent) => {
@@ -579,17 +575,13 @@ export const TerminalTab: React.FC<TerminalTabProps> = ({
           suppressAutoReconnectRef.current = false;
           onUpdateTabStatus(tab.id, 'connected');
           if (wasAutoReconnect) {
-            term.write(`\r\n\x1b[1;32m[Tef] Reconnected to ${comPath}\x1b[0m\r\n`);
-          } else {
-            term.write(`\x1b[1;32m${msg.message || 'Serial Port Connected'}\x1b[0m\r\n`);
+            term.write(`\r\n\x1b[32mReconnected to ${comPath}\x1b[0m\r\n`);
           }
         } else if (msg.type === 'BAUD_CHANGED') {
           if (typeof msg.baudRate === 'number' && msg.baudRate > 0) {
             setCurrentBaudRate(msg.baudRate);
           }
-          term.write(`\r\n\x1b[1;33m${msg.message}\x1b[0m\r\n`);
-        } else if (msg.type === 'STATUS') {
-          if (!quiet && msg.message) term.write(`\r\n\x1b[33m${msg.message}\x1b[0m\r\n`);
+          if (msg.message) term.write(`\r\n\x1b[33m${msg.message}\x1b[0m\r\n`);
         } else if (msg.type === 'DATA' && msg.data != null) {
           const cleanOutput = formatIncomingSerialData(msg.data);
           appendSessionLog(msg.data, 'RX');
@@ -599,17 +591,17 @@ export const TerminalTab: React.FC<TerminalTabProps> = ({
           if (canSerialAutoReconnect()) {
             scheduleSerialAutoReconnect(term, 'Open failed / port unavailable');
           } else {
-            term.write(`\r\n\x1b[1;31m[Tef Hardware Serial Error] ${msg.error}\x1b[0m\r\n`);
+            if (msg.error) term.write(`\r\n\x1b[31m${msg.error}\x1b[0m\r\n`);
             onUpdateTabStatus(tab.id, 'disconnected');
           }
         } else if (msg.type === 'DISCONNECTED') {
           if (canSerialAutoReconnect()) {
             if (autoReconnectAttemptRef.current === 0) {
-              term.write(`\r\n\x1b[33m[Tef] ${comPath} disconnected\x1b[0m\r\n`);
+              term.write(`\r\n\x1b[33m${comPath} disconnected\x1b[0m\r\n`);
             }
             scheduleSerialAutoReconnect(term, 'Port disconnected or removed');
           } else {
-            term.write(`\r\n\x1b[1;33m[Tef] Serial port ${comPath} closed.\x1b[0m\r\n`);
+            term.write(`\r\n\x1b[33m${comPath} closed.\x1b[0m\r\n`);
             onUpdateTabStatus(tab.id, 'disconnected');
           }
         }
@@ -627,7 +619,7 @@ export const TerminalTab: React.FC<TerminalTabProps> = ({
         if (canSerialAutoReconnect()) {
           scheduleSerialAutoReconnect(term, 'Open failed / port unavailable');
         } else {
-          term.write(`\r\n\x1b[1;31m[Tef Hardware Serial Error] ${message}\x1b[0m\r\n`);
+          term.write(`\r\n\x1b[31m${message}\x1b[0m\r\n`);
           onUpdateTabStatus(tab.id, 'disconnected');
         }
       });
@@ -662,17 +654,13 @@ export const TerminalTab: React.FC<TerminalTabProps> = ({
           suppressAutoReconnectRef.current = false;
           onUpdateTabStatus(tab.id, 'connected');
           if (wasAutoReconnect) {
-            term.write(`\r\n\x1b[1;32m[Tef] Reconnected to ${comPath}\x1b[0m\r\n`);
-          } else {
-            term.write(`\x1b[1;32m${msg.message || 'Serial Port Connected'}\x1b[0m\r\n`);
+            term.write(`\r\n\x1b[32mReconnected to ${comPath}\x1b[0m\r\n`);
           }
         } else if (msg.type === 'BAUD_CHANGED') {
           if (typeof msg.baudRate === 'number' && msg.baudRate > 0) {
             setCurrentBaudRate(msg.baudRate);
           }
-          term.write(`\r\n\x1b[1;33m${msg.message}\x1b[0m\r\n`);
-        } else if (msg.type === 'STATUS') {
-          if (!quiet) term.write(`\r\n\x1b[33m${msg.message}\x1b[0m\r\n`);
+          if (msg.message) term.write(`\r\n\x1b[33m${msg.message}\x1b[0m\r\n`);
         } else if (msg.type === 'DATA') {
           const cleanOutput = formatIncomingSerialData(msg.data);
           appendSessionLog(typeof msg.data === 'string' ? msg.data : String(msg.data), 'RX');
@@ -684,17 +672,17 @@ export const TerminalTab: React.FC<TerminalTabProps> = ({
           if (canSerialAutoReconnect()) {
             scheduleSerialAutoReconnect(term, 'Open failed / port unavailable');
           } else {
-            term.write(`\r\n\x1b[1;31m[Tef Hardware Serial Error] ${msg.error}\x1b[0m\r\n`);
+            if (msg.error) term.write(`\r\n\x1b[31m${msg.error}\x1b[0m\r\n`);
             onUpdateTabStatus(tab.id, 'disconnected');
           }
         } else if (msg.type === 'DISCONNECTED') {
           if (canSerialAutoReconnect()) {
             if (autoReconnectAttemptRef.current === 0) {
-              term.write(`\r\n\x1b[33m[Tef] ${comPath} disconnected\x1b[0m\r\n`);
+              term.write(`\r\n\x1b[33m${comPath} disconnected\x1b[0m\r\n`);
             }
             scheduleSerialAutoReconnect(term, 'Port disconnected or removed');
           } else {
-            term.write(`\r\n\x1b[1;33m[Tef] Serial port ${comPath} closed.\x1b[0m\r\n`);
+            term.write(`\r\n\x1b[33m${comPath} closed.\x1b[0m\r\n`);
             onUpdateTabStatus(tab.id, 'disconnected');
           }
         }
@@ -710,9 +698,6 @@ export const TerminalTab: React.FC<TerminalTabProps> = ({
     ws.onerror = () => {
       if (epoch !== serialConnectEpochRef.current) return;
       if (attempt <= 3) {
-        if (!quiet) {
-          term.write(`\x1b[33m[Tef Auto-Retry ${attempt}/3] Connecting to backend Serial engine on port 3001...\x1b[0m\r\n`);
-        }
         retryTimerRef.current = setTimeout(() => {
           if (epoch !== serialConnectEpochRef.current) return;
           connectSerialWebSocket(term, attempt + 1, quiet);
@@ -720,7 +705,7 @@ export const TerminalTab: React.FC<TerminalTabProps> = ({
       } else if (canSerialAutoReconnect()) {
         scheduleSerialAutoReconnect(term, 'Backend connection lost');
       } else {
-        term.write(`\r\n\x1b[1;31m[Tef Error] Backend Real Engine at ws://localhost:3001 unavailable. Click Connect to retry.\x1b[0m\r\n`);
+        term.write(`\r\n\x1b[31mCould not connect. Click Connect to retry.\x1b[0m\r\n`);
         onUpdateTabStatus(tab.id, 'disconnected');
       }
     };
@@ -745,7 +730,11 @@ export const TerminalTab: React.FC<TerminalTabProps> = ({
       void closeSession(tab.id);
     }
 
-    term.write(`\x1b[36m[Tef Real Core] Connecting to real SSH host ${tab.sshConfig?.username}@${tab.sshConfig?.host}:${tab.sshConfig?.port}...\x1b[0m\r\n`);
+    if (!isTauriRuntime()) {
+      term.write(
+        `\x1b[36mConnecting to ${tab.sshConfig?.username}@${tab.sshConfig?.host}:${tab.sshConfig?.port}…\x1b[0m\r\n`
+      );
+    }
 
     if (isTauriRuntime()) {
       tauriUnsubRef.current = onSessionEvent((msg: SessionEvent) => {
@@ -764,10 +753,10 @@ export const TerminalTab: React.FC<TerminalTabProps> = ({
           } catch {}
           requestAnimationFrame(() => scheduleSuggestionUpdate(inputBufferRef.current));
         } else if (msg.type === 'ERROR') {
-          term.write(`\r\n\x1b[1;31m[Tef Real SSH Error] ${msg.error}\x1b[0m\r\n`);
+          term.write(`\r\n\x1b[31m${msg.error}\x1b[0m\r\n`);
           onUpdateTabStatus(tab.id, 'disconnected');
         } else if (msg.type === 'DISCONNECTED') {
-          term.write(`\r\n\x1b[1;33m[Tef] Connection closed by remote host.\x1b[0m\r\n`);
+          term.write(`\r\n\x1b[33mDisconnected.\x1b[0m\r\n`);
           onUpdateTabStatus(tab.id, 'disconnected');
         }
       });
@@ -780,7 +769,7 @@ export const TerminalTab: React.FC<TerminalTabProps> = ({
         privateKeyPath: tab.sshConfig?.privateKeyPath,
       }).catch((err) => {
         const message = err instanceof Error ? err.message : String(err);
-        term.write(`\r\n\x1b[1;31m[Tef Real SSH Error] ${message}\x1b[0m\r\n`);
+        term.write(`\r\n\x1b[31m${message}\x1b[0m\r\n`);
         onUpdateTabStatus(tab.id, 'disconnected');
       });
       return;
@@ -818,10 +807,10 @@ export const TerminalTab: React.FC<TerminalTabProps> = ({
             scheduleSuggestionUpdate(inputBufferRef.current);
           });
         } else if (msg.type === 'ERROR') {
-          term.write(`\r\n\x1b[1;31m[Tef Real SSH Error] ${msg.error}\x1b[0m\r\n`);
+          term.write(`\r\n\x1b[31m${msg.error}\x1b[0m\r\n`);
           onUpdateTabStatus(tab.id, 'disconnected');
         } else if (msg.type === 'DISCONNECTED') {
-          term.write(`\r\n\x1b[1;33m[Tef] Connection closed by remote host.\x1b[0m\r\n`);
+          term.write(`\r\n\x1b[33mDisconnected.\x1b[0m\r\n`);
           onUpdateTabStatus(tab.id, 'disconnected');
         }
       } catch (parseErr) {
@@ -835,10 +824,9 @@ export const TerminalTab: React.FC<TerminalTabProps> = ({
 
     ws.onerror = () => {
       if (attempt <= 3) {
-        term.write(`\x1b[33m[Tef Auto-Retry ${attempt}/3] Connecting to backend SSH engine on port 3001...\x1b[0m\r\n`);
         retryTimerRef.current = setTimeout(() => connectSSHWebSocket(term, attempt + 1), 1500);
       } else {
-        term.write(`\r\n\x1b[1;31m[Tef Error] Backend Real Engine at ws://localhost:3001 unavailable. Click Reconnect button to retry.\x1b[0m\r\n`);
+        term.write(`\r\n\x1b[31mCould not connect. Click Reconnect to retry.\x1b[0m\r\n`);
         onUpdateTabStatus(tab.id, 'disconnected');
       }
     };
@@ -1133,7 +1121,7 @@ export const TerminalTab: React.FC<TerminalTabProps> = ({
     }
 
     onUpdateTabStatus(tab.id, 'reconnecting');
-    term.write(`\x1b[36m[Tef] Starting local shell…\x1b[0m\r\n`);
+    term.write(`\x1b[36mStarting local shell…\x1b[0m\r\n`);
 
     void (async () => {
       try {
@@ -1160,10 +1148,10 @@ export const TerminalTab: React.FC<TerminalTabProps> = ({
             } catch {}
             requestAnimationFrame(() => scheduleSuggestionUpdate(inputBufferRef.current));
           } else if (msg.type === 'ERROR') {
-            term.write(`\r\n\x1b[1;31m[Tef Local Shell Error] ${msg.error}\x1b[0m\r\n`);
+            term.write(`\r\n\x1b[31m${msg.error}\x1b[0m\r\n`);
             onUpdateTabStatus(tab.id, 'disconnected');
           } else if (msg.type === 'DISCONNECTED') {
-            term.write(`\r\n\x1b[1;33m[Tef] Local shell exited.\x1b[0m\r\n`);
+            term.write(`\r\n\x1b[33mLocal shell exited.\x1b[0m\r\n`);
             onUpdateTabStatus(tab.id, 'disconnected');
           }
         });
@@ -1176,7 +1164,7 @@ export const TerminalTab: React.FC<TerminalTabProps> = ({
       } catch (err) {
         if (epoch !== localConnectEpochRef.current) return;
         const message = err instanceof Error ? err.message : String(err);
-        term.write(`\r\n\x1b[1;31m[Tef Local Shell Error] ${message}\x1b[0m\r\n`);
+        term.write(`\r\n\x1b[31m${message}\x1b[0m\r\n`);
         onUpdateTabStatus(tab.id, 'disconnected');
       }
     })();
@@ -1436,7 +1424,7 @@ export const TerminalTab: React.FC<TerminalTabProps> = ({
     }
 
     xtermRef.current?.write(
-      `\r\n\x1b[90m[Tef] Session logging ${next ? 'ON — traffic is being recorded' : 'OFF'}\x1b[0m\r\n`
+      `\r\n\x1b[90mSession logging ${next ? 'on' : 'off'}\x1b[0m\r\n`
     );
   };
 
@@ -1468,7 +1456,7 @@ export const TerminalTab: React.FC<TerminalTabProps> = ({
         requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
       });
       try {
-        const saved = await saveTextFile(`tef_${safeName}_${stamp}.log`, logData);
+        const saved = await saveTextFile(`sshark_${safeName}_${stamp}.log`, logData);
         if (!saved) {
           showLogNotice('Save cancelled');
           return;
@@ -1559,7 +1547,7 @@ export const TerminalTab: React.FC<TerminalTabProps> = ({
                   if (!nextMode) flushPendingHexView();
                   else hexPendingRef.current = [];
                   setIsHexMode(nextMode);
-                  xtermRef.current?.write(`\r\n\x1b[90m[Tef] ${nextMode ? 'HEX' : 'ASCII'} view\x1b[0m\r\n`);
+                  xtermRef.current?.write(`\r\n\x1b[90m${nextMode ? 'HEX' : 'ASCII'} view\x1b[0m\r\n`);
                 }}
                 className={`tb-btn ${isHexMode ? 'is-on' : ''}`}
                 title="Hex view"
@@ -1571,7 +1559,7 @@ export const TerminalTab: React.FC<TerminalTabProps> = ({
                 onClick={() => {
                   const next = !isTimestampMode;
                   setIsTimestampMode(next);
-                  xtermRef.current?.write(`\r\n\x1b[90m[Tef] Timestamps ${next ? 'on' : 'off'}\x1b[0m\r\n`);
+                  xtermRef.current?.write(`\r\n\x1b[90mTimestamps ${next ? 'on' : 'off'}\x1b[0m\r\n`);
                 }}
                 className={`tb-btn ${isTimestampMode ? 'is-on' : ''}`}
                 title="Timestamps"

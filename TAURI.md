@@ -1,4 +1,4 @@
-# Tef desktop (Tauri)
+# SSHark desktop (Tauri)
 
 ## Run in development
 
@@ -35,11 +35,11 @@ Then **Actions → Release → Run workflow**.
 GitHub builds all three platforms in parallel. When it finishes:
 
 - **Actions run → Artifacts** — download the zip for each OS
-- **Releases** — a draft release `Tef v1.0.0` with the installers attached (publish when ready)
+- **Releases** — a draft release `SSHark v1.0.0` with the installers attached (publish when ready)
 
 | OS | File |
 |----|------|
-| Windows | `Tef_*_x64-setup.exe` |
+| Windows | `SSHark_*_x64-setup.exe` |
 | macOS Apple Silicon | `.dmg` / `.app` (aarch64) |
 | macOS Intel | `.dmg` / `.app` (x86_64) |
 | Linux | `.deb` and `.AppImage` |
