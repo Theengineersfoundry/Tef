@@ -1,7 +1,7 @@
 [package]
 name = "tef"
 version = "1.0.0"
-description = "Tef — SSH, serial, and local terminal"
+description = "SSHark — SSH, serial, and local terminal"
 authors = ["The Engineers Foundry"]
 edition = "2021"
 

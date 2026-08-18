@@ -1,4 +1,4 @@
-# Tef
+# SSHark
 
 Desktop terminal for SSH, serial (COM/USB), SFTP, and local shell. Built with React and Tauri.
 

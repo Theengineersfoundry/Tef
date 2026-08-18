@@ -19,7 +19,7 @@
   },
   "build": {
     "appId": "com.theengineersfoundry.tef",
-    "productName": "Tef",
+    "productName": "SSHark",
     "npmRebuild": false,
     "directories": {
       "output": "C:\\Users\\LENOVO\\tef-build-output"
@@ -65,7 +65,7 @@
     "typescript": "~6.0.2",
     "vite": "^8.1.1"
   },
-  "description": "Tef — SSH, serial, SFTP, and local terminal",
+  "description": "SSHark — SSH, serial, SFTP, and local terminal",
   "keywords": [
     "ssh",
     "serial",

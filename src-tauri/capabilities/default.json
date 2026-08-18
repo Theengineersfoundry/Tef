@@ -1,7 +1,7 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "Tef default capability",
+  "description": "SSHark default capability",
   "windows": ["main"],
   "permissions": [
     "core:default",

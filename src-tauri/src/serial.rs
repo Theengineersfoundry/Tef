@@ -148,9 +148,7 @@ pub fn open_serial(
                   session_id: sid_writer.clone(),
                   event_type: "BAUD_CHANGED".into(),
                   data: None,
-                  message: Some(format!(
-                    "--- Serial Port Baud Rate Updated to {new_baud} bps ---"
-                  )),
+                  message: Some(format!("Baud rate set to {new_baud}")),
                   error: None,
                   baud_rate: Some(new_baud),
                 },
