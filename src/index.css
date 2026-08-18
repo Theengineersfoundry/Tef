@@ -1135,6 +1135,31 @@ button {
   color: var(--md-sys-color-error);
 }
 
+.terminal-stack {
+  flex: 1 1 0;
+  min-height: 0;
+  min-width: 0;
+  position: relative;
+}
+
+.terminal-tab-pane {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  min-width: 0;
+  visibility: hidden;
+  pointer-events: none;
+  z-index: 0;
+}
+
+.terminal-tab-pane.is-active {
+  visibility: visible;
+  pointer-events: auto;
+  z-index: 1;
+}
+
 .terminal-shell {
   flex: 1 1 0;
   min-height: 0;
@@ -1160,14 +1185,32 @@ button {
 .terminal-shell .terminal-viewport {
   width: 100%;
   height: 100%;
-  padding: 6px 8px;
+  padding: 0 0 0 8px;
   box-sizing: border-box;
 }
 
 .terminal-shell .serial-tx-bar {
   flex-shrink: 0;
+  min-height: 48px;
+  height: 48px;
+  overflow: visible;
+  padding: 0 12px 0 10px;
+  box-sizing: border-box;
   background: #1a1a1f !important;
   border-top: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.terminal-shell .serial-tx-bar .btn-ide-primary {
+  flex-shrink: 0;
+  height: 32px;
+  min-height: 32px;
+  max-height: 32px;
+  padding: 0 14px;
+  gap: 6px;
+  font-size: 12px;
+  line-height: 1;
+  overflow: visible;
+  box-shadow: none;
 }
 
 .terminal-shell .serial-tx-bar input,
@@ -1187,9 +1230,40 @@ button {
   padding: 0;
   height: 100%;
   width: 100%;
+  --xterm-scrollbar-size: 14px;
+  position: relative;
 }
 .xterm-viewport {
   background-color: #0e0e11 !important;
+  overflow-y: scroll !important;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+  scrollbar-color: #7a7680 #0e0e11;
+}
+.xterm-viewport::-webkit-scrollbar {
+  width: var(--xterm-scrollbar-size);
+}
+.xterm-viewport::-webkit-scrollbar-track {
+  background: #0e0e11;
+  margin: 2px 0;
+}
+.xterm-viewport::-webkit-scrollbar-thumb {
+  background: #6f6b75;
+  border-radius: 7px;
+  border: 3px solid #0e0e11;
+  background-clip: padding-box;
+  min-height: 48px;
+  cursor: default;
+}
+.xterm-viewport::-webkit-scrollbar-thumb:hover {
+  background: #949099;
+  border: 2px solid #0e0e11;
+  background-clip: padding-box;
+}
+.xterm-viewport::-webkit-scrollbar-thumb:active {
+  background: #b0acb6;
+  border: 2px solid #0e0e11;
+  background-clip: padding-box;
 }
 .xterm-screen {
   /* Let FitAddon size the grid — stretching this makes glyphs huge. */
