@@ -1,8 +1,9 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "SSHark",
+  "mainBinaryName": "SSHark",
   "version": "1.0.0",
-  "identifier": "com.theengineersfoundry.tef",
+  "identifier": "com.theengineersfoundry.sshark",
   "build": {
     "beforeDevCommand": "npm run dev",
     "devUrl": "http://localhost:5173",

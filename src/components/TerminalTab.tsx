@@ -102,7 +102,8 @@ export const TerminalTab: React.FC<TerminalTabProps> = ({
       return;
     }
     if (isActive && xtermRef.current) {
-      xtermRef.current.focus();
+      const ta = xtermRef.current.element?.querySelector('textarea');
+      if (ta instanceof HTMLElement) ta.focus({ preventScroll: true });
     }
   }, [isActive, suspendTerminalFocus]);
 
@@ -167,6 +168,82 @@ export const TerminalTab: React.FC<TerminalTabProps> = ({
   /** Bumped per local-shell connect attempt so stale DISCONNECTED events cannot overwrite status */
   const localConnectEpochRef = useRef(0);
   const connectSerialWebSocketRef = useRef<(term: Terminal, attempt?: number, silent?: boolean) => void>(() => {});
+  /** Wait for Clear-Host to finish before positioning its new prompt. */
+  const suppressHomeClearRef = useRef(false);
+  /** Timestamp until which auto-scroll is paused (after clear). */
+  const suppressScrollUntilRef = useRef(0);
+  /** Preserve the existing xterm screen while a replacement local PTY starts. */
+  const preserveLocalScreenRef = useRef(false);
+  const localStartupDataRef = useRef('');
+  const localStartupTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const programmaticScrollRef = useRef(false);
+  const pointerDownRef = useRef(false);
+
+  const stayAtBottomIfPinned = (term: Terminal) => {
+    if (!autoScrollRef.current) return;
+    if (pointerDownRef.current) return;
+    if (Date.now() < suppressScrollUntilRef.current) return;
+    programmaticScrollRef.current = true;
+    term.scrollToBottom();
+    requestAnimationFrame(() => { programmaticScrollRef.current = false; });
+  };
+
+  const flushLocalStartupData = (term: Terminal) => {
+    if (localStartupTimerRef.current) {
+      clearTimeout(localStartupTimerRef.current);
+      localStartupTimerRef.current = null;
+    }
+    const startupData = localStartupDataRef.current;
+    localStartupDataRef.current = '';
+    preserveLocalScreenRef.current = false;
+    if (!startupData) return;
+
+    // A fresh ConPTY can replay screen initialization for its own blank screen.
+    // Do not let those sequences clear/home the xterm buffer retained by this tab.
+    const preservedData = startupData
+      .replace(/\x1bc/g, '')
+      .replace(/\x1b\[[?0-9;]*[HJf]/g, '');
+    term.write(preservedData);
+    stayAtBottomIfPinned(term);
+  };
+
+  const writeIncomingTerminalData = (term: Terminal, raw: string) => {
+    if (preserveLocalScreenRef.current) {
+      localStartupDataRef.current += raw;
+      const plainStartup = localStartupDataRef.current
+        .replace(/\x1b\[[^a-zA-Z]*[a-zA-Z]/g, '')
+        .replace(/\x1b./g, '');
+      const hasShellPrompt =
+        /(?:PS\s+[^\r\n>]+>|[A-Za-z]:\\[^\r\n>]*>)\s*$/.test(plainStartup);
+
+      if (hasShellPrompt || localStartupDataRef.current.length >= 65536) {
+        flushLocalStartupData(term);
+      } else if (!localStartupTimerRef.current) {
+        localStartupTimerRef.current = setTimeout(() => flushLocalStartupData(term), 1500);
+      }
+      return;
+    }
+
+    if (suppressHomeClearRef.current) {
+      // After a clear: let Clear-Host escape sequences through (PTY cursor reset),
+      // but block auto-scroll. Once the prompt lands, scroll to top so it appears
+      // at the top of the blank screen.
+      const stripped = raw.replace(/\x1b\[[^a-zA-Z]*[a-zA-Z]/g, '').replace(/\x1b./g, '');
+      const hasPromptText = /PS\s+\S+>\s*$/.test(stripped);
+      term.write(raw);
+      if (hasPromptText) {
+        const wasClear = suppressScrollUntilRef.current > 0;
+        suppressHomeClearRef.current = false;
+        suppressScrollUntilRef.current = 0;
+        if (wasClear) {
+          term.scrollToTop();
+        }
+      }
+      return;
+    }
+    term.write(raw);
+    stayAtBottomIfPinned(term);
+  };
 
   const hideInlineSuggestion = () => {
     ghostSuggestionRef.current = null;
@@ -196,6 +273,45 @@ export const TerminalTab: React.FC<TerminalTabProps> = ({
       cellWidth: rect.width / term.cols,
       cellHeight: rect.height / term.rows,
     };
+  };
+
+  /** Fit xterm to its host and trim rows/cols when metrics exceed the viewport. */
+  const fitTerminalToHost = (term: Terminal, fitAddon: FitAddon, host: HTMLElement | null) => {
+    if (!host || host.clientWidth < 24 || host.clientHeight < 24) return;
+    try {
+      fitAddon.fit();
+    } catch {
+      return;
+    }
+
+    const xtermEl = term.element;
+    const metrics = getTermCellMetrics(term);
+    if (!xtermEl || !metrics) return;
+
+    const availHeight = xtermEl.clientHeight;
+    if (availHeight <= 0) return;
+
+    // Leave a little slack so the last row is not clipped on high-DPI displays.
+    let rows = term.rows;
+    while (rows > 2 && rows * metrics.cellHeight > availHeight - 1) {
+      rows -= 1;
+    }
+
+    if (rows !== term.rows) {
+      term.resize(rows, term.cols);
+    }
+  };
+
+  const notifyTerminalResize = (term: Terminal) => {
+    if (isTauriRuntime()) {
+      void resizeSession(tab.id, term.rows, term.cols);
+    } else if (socketRef.current?.readyState === WebSocket.OPEN) {
+      socketRef.current.send(JSON.stringify({
+        type: 'RESIZE',
+        rows: term.rows,
+        cols: term.cols,
+      }));
+    }
   };
 
   /** Inline ghost text aligned to the xterm cell grid (after cursor). */
@@ -459,6 +575,7 @@ export const TerminalTab: React.FC<TerminalTabProps> = ({
     onUpdateTabStatus(tab.id, 'disconnected');
     if (xtermRef.current) {
       xtermRef.current.write('\r\n\x1b[31mDisconnected.\x1b[0m\r\n');
+      stayAtBottomIfPinned(xtermRef.current);
     }
   };
 
@@ -577,6 +694,7 @@ export const TerminalTab: React.FC<TerminalTabProps> = ({
           if (wasAutoReconnect) {
             term.write(`\r\n\x1b[32mReconnected to ${comPath}\x1b[0m\r\n`);
           }
+          stayAtBottomIfPinned(term);
         } else if (msg.type === 'BAUD_CHANGED') {
           if (typeof msg.baudRate === 'number' && msg.baudRate > 0) {
             setCurrentBaudRate(msg.baudRate);
@@ -585,8 +703,7 @@ export const TerminalTab: React.FC<TerminalTabProps> = ({
         } else if (msg.type === 'DATA' && msg.data != null) {
           const cleanOutput = formatIncomingSerialData(msg.data);
           appendSessionLog(msg.data, 'RX');
-          term.write(cleanOutput);
-          if (autoScrollRef.current) term.scrollToBottom();
+          writeIncomingTerminalData(term, cleanOutput);
         } else if (msg.type === 'ERROR') {
           if (canSerialAutoReconnect()) {
             scheduleSerialAutoReconnect(term, 'Open failed / port unavailable');
@@ -607,22 +724,28 @@ export const TerminalTab: React.FC<TerminalTabProps> = ({
         }
       });
 
-      void openSerialSession(tab.id, {
-        path: comPath,
-        baudRate: currentBaudRate,
-        dataBits: tab.serialConfig?.dataBits,
-        parity: tab.serialConfig?.parity,
-        stopBits: tab.serialConfig?.stopBits,
-      }).catch((err) => {
-        if (epoch !== serialConnectEpochRef.current) return;
-        const message = err instanceof Error ? err.message : String(err);
-        if (canSerialAutoReconnect()) {
-          scheduleSerialAutoReconnect(term, 'Open failed / port unavailable');
-        } else {
-          term.write(`\r\n\x1b[31m${message}\x1b[0m\r\n`);
-          onUpdateTabStatus(tab.id, 'disconnected');
+      void (async () => {
+        try {
+          await closeSession(tab.id);
+          if (epoch !== serialConnectEpochRef.current) return;
+          await openSerialSession(tab.id, {
+            path: comPath,
+            baudRate: currentBaudRate,
+            dataBits: tab.serialConfig?.dataBits,
+            parity: tab.serialConfig?.parity,
+            stopBits: tab.serialConfig?.stopBits,
+          });
+        } catch (err) {
+          if (epoch !== serialConnectEpochRef.current) return;
+          const message = err instanceof Error ? err.message : String(err);
+          if (canSerialAutoReconnect()) {
+            scheduleSerialAutoReconnect(term, 'Open failed / port unavailable');
+          } else {
+            term.write(`\r\n\x1b[31m${message}\x1b[0m\r\n`);
+            onUpdateTabStatus(tab.id, 'disconnected');
+          }
         }
-      });
+      })();
       return;
     }
 
@@ -656,6 +779,7 @@ export const TerminalTab: React.FC<TerminalTabProps> = ({
           if (wasAutoReconnect) {
             term.write(`\r\n\x1b[32mReconnected to ${comPath}\x1b[0m\r\n`);
           }
+          stayAtBottomIfPinned(term);
         } else if (msg.type === 'BAUD_CHANGED') {
           if (typeof msg.baudRate === 'number' && msg.baudRate > 0) {
             setCurrentBaudRate(msg.baudRate);
@@ -664,10 +788,7 @@ export const TerminalTab: React.FC<TerminalTabProps> = ({
         } else if (msg.type === 'DATA') {
           const cleanOutput = formatIncomingSerialData(msg.data);
           appendSessionLog(typeof msg.data === 'string' ? msg.data : String(msg.data), 'RX');
-          term.write(cleanOutput);
-          if (autoScrollRef.current) {
-            term.scrollToBottom();
-          }
+          writeIncomingTerminalData(term, cleanOutput);
         } else if (msg.type === 'ERROR') {
           if (canSerialAutoReconnect()) {
             scheduleSerialAutoReconnect(term, 'Open failed / port unavailable');
@@ -730,6 +851,8 @@ export const TerminalTab: React.FC<TerminalTabProps> = ({
       void closeSession(tab.id);
     }
 
+    suppressHomeClearRef.current = true;
+
     if (!isTauriRuntime()) {
       term.write(
         `\x1b[36mConnecting to ${tab.sshConfig?.username}@${tab.sshConfig?.host}:${tab.sshConfig?.port}…\x1b[0m\r\n`
@@ -739,15 +862,16 @@ export const TerminalTab: React.FC<TerminalTabProps> = ({
     if (isTauriRuntime()) {
       tauriUnsubRef.current = onSessionEvent((msg: SessionEvent) => {
         if (msg.sessionId !== tab.id) return;
-        if (msg.type === 'STATUS' && msg.message) {
-          term.write(`\x1b[33m${msg.message}\x1b[0m\r\n`);
-        } else if (msg.type === 'CONNECTED') {
+          if (msg.type === 'STATUS' && msg.message) {
+            term.write(`\x1b[33m${msg.message}\x1b[0m\r\n`);
+            stayAtBottomIfPinned(term);
+          } else if (msg.type === 'CONNECTED') {
           onUpdateTabStatus(tab.id, 'connected');
+          stayAtBottomIfPinned(term);
           setTimeout(() => term.focus(), 100);
         } else if (msg.type === 'DATA' && msg.data != null) {
           appendSessionLog(msg.data, 'RX');
-          term.write(msg.data);
-          if (autoScrollRef.current) term.scrollToBottom();
+          writeIncomingTerminalData(term, msg.data);
           try {
             AutoSuggestEngine.indexRemoteOutput(msg.data);
           } catch {}
@@ -755,9 +879,11 @@ export const TerminalTab: React.FC<TerminalTabProps> = ({
         } else if (msg.type === 'ERROR') {
           term.write(`\r\n\x1b[31m${msg.error}\x1b[0m\r\n`);
           onUpdateTabStatus(tab.id, 'disconnected');
+          stayAtBottomIfPinned(term);
         } else if (msg.type === 'DISCONNECTED') {
           term.write(`\r\n\x1b[33mDisconnected.\x1b[0m\r\n`);
           onUpdateTabStatus(tab.id, 'disconnected');
+          stayAtBottomIfPinned(term);
         }
       });
 
@@ -793,13 +919,11 @@ export const TerminalTab: React.FC<TerminalTabProps> = ({
           term.write(`\x1b[33m${msg.message}\x1b[0m\r\n`);
         } else if (msg.type === 'CONNECTED') {
           onUpdateTabStatus(tab.id, 'connected');
+          stayAtBottomIfPinned(term);
           setTimeout(() => term.focus(), 100);
         } else if (msg.type === 'DATA') {
           appendSessionLog(msg.data, 'RX');
-          term.write(msg.data);
-          if (autoScrollRef.current) {
-            term.scrollToBottom();
-          }
+          writeIncomingTerminalData(term, msg.data);
           try {
             AutoSuggestEngine.indexRemoteOutput(msg.data);
           } catch {}
@@ -809,9 +933,11 @@ export const TerminalTab: React.FC<TerminalTabProps> = ({
         } else if (msg.type === 'ERROR') {
           term.write(`\r\n\x1b[31m${msg.error}\x1b[0m\r\n`);
           onUpdateTabStatus(tab.id, 'disconnected');
+          stayAtBottomIfPinned(term);
         } else if (msg.type === 'DISCONNECTED') {
           term.write(`\r\n\x1b[33mDisconnected.\x1b[0m\r\n`);
           onUpdateTabStatus(tab.id, 'disconnected');
+          stayAtBottomIfPinned(term);
         }
       } catch (parseErr) {
         if (typeof event.data === 'string' && !event.data.startsWith('{')) {
@@ -861,7 +987,7 @@ export const TerminalTab: React.FC<TerminalTabProps> = ({
     const fitAddon = new FitAddon();
     term.loadAddon(fitAddon);
     term.open(terminalRef.current);
-    fitAddon.fit();
+    fitTerminalToHost(term, fitAddon, terminalRef.current);
 
     xtermRef.current = term;
     fitAddonRef.current = fitAddon;
@@ -885,6 +1011,16 @@ export const TerminalTab: React.FC<TerminalTabProps> = ({
       }
     };
     hostEl?.addEventListener('keydown', onTabCapture, true);
+
+    const viewportEl = term.element?.querySelector('.xterm-viewport') as HTMLElement | null;
+    const onPointerDown = () => { pointerDownRef.current = true; };
+    const onPointerUp = () => {
+      pointerDownRef.current = false;
+    };
+    window.addEventListener('pointerdown', onPointerDown);
+    window.addEventListener('pointerup', onPointerUp);
+    window.addEventListener('pointercancel', onPointerUp);
+    viewportEl?.addEventListener('scroll', () => {}, { passive: true }); // kept for cleanup symmetry
 
     if (tab.protocol === 'serial') {
       connectSerialWebSocket(term, 1);
@@ -1007,51 +1143,48 @@ export const TerminalTab: React.FC<TerminalTabProps> = ({
     }
 
     const fitAndNotify = () => {
-      const host = terminalRef.current;
-      if (!host || host.clientWidth < 24 || host.clientHeight < 24) return;
-      try {
-        fitAddon.fit();
-      } catch {
-        return;
-      }
-      if (isTauriRuntime()) {
-        void resizeSession(tab.id, term.rows, term.cols);
-      } else if (socketRef.current?.readyState === WebSocket.OPEN) {
-        socketRef.current.send(JSON.stringify({
-          type: 'RESIZE',
-          rows: term.rows,
-          cols: term.cols,
-        }));
-      }
+      fitTerminalToHost(term, fitAddon, terminalRef.current);
+      notifyTerminalResize(term);
     };
 
     window.addEventListener('resize', fitAndNotify);
 
-    const viewportEl = terminalRef.current;
+    const viewportHost = terminalRef.current?.parentElement;
     const resizeObserver =
-      viewportEl && typeof ResizeObserver !== 'undefined'
+      viewportHost && typeof ResizeObserver !== 'undefined'
         ? new ResizeObserver(() => {
             requestAnimationFrame(fitAndNotify);
           })
         : null;
-    if (viewportEl && resizeObserver) resizeObserver.observe(viewportEl);
+    if (viewportHost && resizeObserver) resizeObserver.observe(viewportHost);
 
-    requestAnimationFrame(() => {
-      fitAndNotify();
+    const scheduleInitialFit = () => {
+      requestAnimationFrame(fitAndNotify);
       setTimeout(fitAndNotify, 80);
       setTimeout(fitAndNotify, 250);
-    });
+      setTimeout(fitAndNotify, 600);
+    };
+    if (typeof document !== 'undefined' && document.fonts?.ready) {
+      void document.fonts.ready.then(scheduleInitialFit);
+    } else {
+      scheduleInitialFit();
+    }
 
     return () => {
       window.removeEventListener('resize', fitAndNotify);
       resizeObserver?.disconnect();
       hostEl?.removeEventListener('keydown', onTabCapture, true);
+      window.removeEventListener('pointerdown', onPointerDown);
+      window.removeEventListener('pointerup', onPointerUp);
+      window.removeEventListener('pointercancel', onPointerUp);
+      pointerDownRef.current = false;
       hideInlineSuggestion();
       serialConnectEpochRef.current += 1;
       localConnectEpochRef.current += 1;
       suppressAutoReconnectRef.current = true;
       hadSerialConnectionRef.current = false;
       if (autoReconnectTimerRef.current) clearTimeout(autoReconnectTimerRef.current);
+      if (localStartupTimerRef.current) clearTimeout(localStartupTimerRef.current);
       closeSerialSocket();
       term.dispose();
     };
@@ -1060,36 +1193,33 @@ export const TerminalTab: React.FC<TerminalTabProps> = ({
   useEffect(() => {
     if (!isActive || !fitAddonRef.current || !xtermRef.current) return;
     const term = xtermRef.current;
-    const fit = () => {
-      try {
-        fitAddonRef.current?.fit();
-      } catch {
-        return;
-      }
-      if (isTauriRuntime()) {
-        void resizeSession(tab.id, term.rows, term.cols);
-      }
-    };
-    requestAnimationFrame(() => {
-      fit();
-      setTimeout(fit, 50);
-    });
+    const beforeRows = term.rows;
+    const beforeCols = term.cols;
+    fitTerminalToHost(term, fitAddonRef.current, terminalRef.current);
+    if (term.rows !== beforeRows || term.cols !== beforeCols) {
+      notifyTerminalResize(term);
+    }
   }, [isActive, tab.id]);
 
   const wipeTerminal = (term: Terminal) => {
     const scrollback = term.options.scrollback ?? 10000;
-    // Drop scrollback lines, then reset. CSI 3J is not enough in xterm 5.
     term.options.scrollback = 0;
     term.reset();
     term.clear();
     term.options.scrollback = scrollback;
-    term.write('\x1b[2J\x1b[3J\x1b[H');
-    term.scrollToTop();
+    // Cursor at top-left, no scroll jump.
+    term.write('\x1b[H');
   };
 
   const handleClear = () => {
     const term = xtermRef.current;
     if (!term) return;
+    preserveLocalScreenRef.current = false;
+    localStartupDataRef.current = '';
+    if (localStartupTimerRef.current) {
+      clearTimeout(localStartupTimerRef.current);
+      localStartupTimerRef.current = null;
+    }
     if (hexIdleTimerRef.current) {
       window.clearTimeout(hexIdleTimerRef.current);
       hexIdleTimerRef.current = null;
@@ -1098,6 +1228,10 @@ export const TerminalTab: React.FC<TerminalTabProps> = ({
     wipeTerminal(term);
 
     if (tab.protocol === 'local' && isTauriRuntime()) {
+      // Let Clear-Host do the PTY reset so the cursor is in the right place.
+      // We wipe the xterm display immediately, then let the PTY response land and scroll to top.
+      suppressHomeClearRef.current = true;
+      suppressScrollUntilRef.current = Date.now() + 2000;
       sendSessionData({ data: 'Clear-Host\r' });
       return;
     }
@@ -1114,6 +1248,13 @@ export const TerminalTab: React.FC<TerminalTabProps> = ({
     if (!isTauriRuntime()) return;
 
     const epoch = ++localConnectEpochRef.current;
+    if (localStartupTimerRef.current) {
+      clearTimeout(localStartupTimerRef.current);
+      localStartupTimerRef.current = null;
+    }
+    localStartupDataRef.current = '';
+    preserveLocalScreenRef.current =
+      term.buffer.active.baseY > 0 || term.buffer.active.cursorY > 0;
 
     if (tauriUnsubRef.current) {
       tauriUnsubRef.current();
@@ -1121,7 +1262,7 @@ export const TerminalTab: React.FC<TerminalTabProps> = ({
     }
 
     onUpdateTabStatus(tab.id, 'reconnecting');
-    term.write(`\x1b[36mStarting local shell…\x1b[0m\r\n`);
+    stayAtBottomIfPinned(term);
 
     void (async () => {
       try {
@@ -1136,13 +1277,17 @@ export const TerminalTab: React.FC<TerminalTabProps> = ({
 
           if (msg.type === 'STATUS' && msg.message) {
             term.write(`\x1b[33m${msg.message}\x1b[0m\r\n`);
+            stayAtBottomIfPinned(term);
           } else if (msg.type === 'CONNECTED') {
             onUpdateTabStatus(tab.id, 'connected');
-            setTimeout(() => term.focus(), 100);
+            stayAtBottomIfPinned(term);
+            setTimeout(() => {
+              term.focus();
+              stayAtBottomIfPinned(term);
+            }, 100);
           } else if (msg.type === 'DATA' && msg.data != null) {
             appendSessionLog(msg.data, 'RX');
-            term.write(msg.data);
-            if (autoScrollRef.current) term.scrollToBottom();
+            writeIncomingTerminalData(term, msg.data);
             try {
               AutoSuggestEngine.indexRemoteOutput(msg.data);
             } catch {}
@@ -1150,9 +1295,11 @@ export const TerminalTab: React.FC<TerminalTabProps> = ({
           } else if (msg.type === 'ERROR') {
             term.write(`\r\n\x1b[31m${msg.error}\x1b[0m\r\n`);
             onUpdateTabStatus(tab.id, 'disconnected');
+            stayAtBottomIfPinned(term);
           } else if (msg.type === 'DISCONNECTED') {
             term.write(`\r\n\x1b[33mLocal shell exited.\x1b[0m\r\n`);
             onUpdateTabStatus(tab.id, 'disconnected');
+            stayAtBottomIfPinned(term);
           }
         });
 
@@ -1160,7 +1307,11 @@ export const TerminalTab: React.FC<TerminalTabProps> = ({
         if (epoch !== localConnectEpochRef.current) return;
 
         onUpdateTabStatus(tab.id, 'connected');
-        setTimeout(() => term.focus(), 100);
+        stayAtBottomIfPinned(term);
+        setTimeout(() => {
+          term.focus();
+          stayAtBottomIfPinned(term);
+        }, 100);
       } catch (err) {
         if (epoch !== localConnectEpochRef.current) return;
         const message = err instanceof Error ? err.message : String(err);
@@ -1473,7 +1624,7 @@ export const TerminalTab: React.FC<TerminalTabProps> = ({
 
   return (
     <div
-      className={`flex-1 flex-col h-full min-h-0 ${isActive ? 'flex' : 'hidden'}`}
+      className={`terminal-tab-pane${isActive ? ' is-active' : ''}`}
       style={{ background: '#0e0e11' }}
     >
       <div className="surface-bar justify-between text-[12px]">
@@ -1573,6 +1724,7 @@ export const TerminalTab: React.FC<TerminalTabProps> = ({
           <button
             onClick={() => {
               const next = !autoScroll;
+              pointerDownRef.current = false;
               setAutoScroll(next);
               if (next) xtermRef.current?.scrollToBottom();
             }}
@@ -1654,10 +1806,7 @@ export const TerminalTab: React.FC<TerminalTabProps> = ({
           </div>
 
         {tab.protocol === 'serial' && (
-          <div
-            className="serial-tx-bar flex items-center gap-2 px-3"
-            style={{ height: 48 }}
-          >
+          <div className="serial-tx-bar flex items-center gap-2">
             <select
               value={serialTxMode}
               onChange={(e) => setSerialTxMode(e.target.value as any)}
@@ -1693,8 +1842,12 @@ export const TerminalTab: React.FC<TerminalTabProps> = ({
               className="flex-1 font-mono"
               style={{ minHeight: 28, height: 28, fontSize: 12 }}
             />
-            <button onClick={() => handleSendSerialCommand()} className="btn-ide-primary" style={{ height: 28, minHeight: 28 }}>
-              <Send className="w-3.5 h-3.5" />
+            <button
+              onClick={() => handleSendSerialCommand()}
+              className="btn-ide-primary shrink-0"
+              title="Send"
+            >
+              <Send className="w-3.5 h-3.5 shrink-0" />
               Send
             </button>
           </div>

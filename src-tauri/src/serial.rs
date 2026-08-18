@@ -82,6 +82,16 @@ fn map_stop_bits(v: Option<u8>) -> StopBits {
   }
 }
 
+fn port_still_busy(err: &str) -> bool {
+  let e = err.to_ascii_lowercase();
+  e.contains("access is denied")
+    || e.contains("sharing violation")
+    || e.contains("os error 5")
+    || e.contains("os error 32")
+    || e.contains("resource busy")
+    || e.contains("in use")
+}
+
 pub fn open_serial(
   app: AppHandle,
   state: &AppState,
@@ -89,6 +99,8 @@ pub fn open_serial(
   config: SerialConfig,
 ) -> Result<(), String> {
   close_if_exists(state, &session_id);
+  // Windows keeps an exclusive lock until the previous reader/writer threads drop the handle.
+  thread::sleep(Duration::from_millis(80));
 
   let baud = if config.baud_rate == 0 {
     115200
@@ -96,13 +108,32 @@ pub fn open_serial(
     config.baud_rate
   };
 
-  let port = serialport::new(&config.path, baud)
-    .timeout(Duration::from_millis(50))
-    .data_bits(map_data_bits(config.data_bits))
-    .parity(map_parity(config.parity.as_deref()))
-    .stop_bits(map_stop_bits(config.stop_bits))
-    .open()
-    .map_err(|e| format!("Failed to open {}: {e}", config.path))?;
+  let mut last_err = String::new();
+  let port = {
+    let mut opened = None;
+    for attempt in 0..8 {
+      match serialport::new(&config.path, baud)
+        .timeout(Duration::from_millis(50))
+        .data_bits(map_data_bits(config.data_bits))
+        .parity(map_parity(config.parity.as_deref()))
+        .stop_bits(map_stop_bits(config.stop_bits))
+        .open()
+      {
+        Ok(p) => {
+          opened = Some(p);
+          break;
+        }
+        Err(e) => {
+          last_err = e.to_string();
+          if !port_still_busy(&last_err) {
+            break;
+          }
+          thread::sleep(Duration::from_millis(40 * (attempt + 1)));
+        }
+      }
+    }
+    opened.ok_or_else(|| format!("Failed to open {}: {last_err}", config.path))?
+  };
 
   let (tx, mut rx) = mpsc::unbounded_channel::<SerialCmd>();
   let stop = Arc::new(AtomicBool::new(false));

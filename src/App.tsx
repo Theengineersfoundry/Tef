@@ -546,11 +546,12 @@ export const App: React.FC = () => {
               </p>
             </div>
           ) : (
-            tabs.map((tab) => {
+            <div className="terminal-stack">
+            {tabs.map((tab) => {
               const isActive = tab.id === activeTabId;
               if (isSftpTab(tab)) {
                 return (
-                  <div key={tab.id} className={`flex-1 h-full ${isActive ? 'block' : 'hidden'}`}>
+                  <div key={tab.id} className={`terminal-tab-pane${isActive ? ' is-active' : ''}`}>
                     <DualPaneSFTPExplorer sshConfig={tab.sshConfig} />
                   </div>
                 );
@@ -565,7 +566,8 @@ export const App: React.FC = () => {
                   suspendTerminalFocus={modalOpen}
                 />
               );
-            })
+            })}
+            </div>
           )}
         </main>
 
