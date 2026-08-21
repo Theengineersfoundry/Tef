@@ -1,4 +1,4 @@
-import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import '@xterm/xterm/css/xterm.css';
@@ -81,19 +81,11 @@ export const TerminalTab: React.FC<TerminalTabProps> = ({
   const [serialTxMode, setSerialTxMode] = useState<'ASCII' | 'HEX'>('ASCII');
   const [serialLineEnding, setSerialLineEnding] = useState<'CRLF' | 'LF' | 'CR' | 'NONE'>('CRLF');
   const [serialInputText, setSerialInputText] = useState('');
-  const [contextMenu, setContextMenu] = useState<{ x: number; y: number; hasSelection: boolean } | null>(null);
-  const contextMenuRef = useRef<HTMLDivElement | null>(null);
   const savedSelectionRef = useRef('');
   const serialTxModeRef = useRef(serialTxMode);
   const serialLineEndingRef = useRef(serialLineEnding);
   serialTxModeRef.current = serialTxMode;
   serialLineEndingRef.current = serialLineEnding;
-
-  useEffect(() => {
-    const handleClickOutside = () => setContextMenu(null);
-    window.addEventListener('click', handleClickOutside);
-    return () => window.removeEventListener('click', handleClickOutside);
-  }, []);
 
   useEffect(() => {
     if (suspendTerminalFocus) {
@@ -254,6 +246,78 @@ export const TerminalTab: React.FC<TerminalTabProps> = ({
     }
   };
 
+  const resetInputTracking = () => {
+    inputBufferRef.current = '';
+    hideInlineSuggestion();
+  };
+
+  const INPUT_NAV_RE =
+    /\x1b\[[0-9]*[ABCDHFP]|(?:\x1bO[ABCDFH])|\x1b\[3~|\x1b\[1~|\x1b\[4~|\x1b\[5~|\x1b\[6~/;
+
+  const isInputNavigation = (data: string) => INPUT_NAV_RE.test(data);
+
+  const SHELL_PROMPT_RE =
+    /^(?:PS [^\r\n>]+>\s*|[^\s]+@[^\s:]+:[^\$\r\n]*[$#]\s*|[A-Za-z]:\\[^>\r\n]*>\s*)/;
+
+  const extractRedrewInputLine = (raw: string): string | null => {
+    if (!/[\r\x1b\[[0-9]*K]/.test(raw)) return null;
+    const plain = raw
+      .replace(/\x1b\[[^a-zA-Z]*[a-zA-Z]/g, '')
+      .replace(/\x1b\][^\x07]*(?:\x07|\x1b\\)/g, '')
+      .replace(/\x1b./g, '');
+    const tail = plain.split('\r').pop()?.split('\n').pop()?.trimEnd() ?? '';
+    return tail.replace(SHELL_PROMPT_RE, '');
+  };
+
+  const handleIncomingInteractiveData = (term: Terminal, raw: string) => {
+    writeIncomingTerminalData(term, raw);
+    try {
+      AutoSuggestEngine.indexRemoteOutput(raw);
+    } catch {}
+    const redrawn = extractRedrewInputLine(raw);
+    if (redrawn !== null) {
+      inputBufferRef.current = redrawn;
+      scheduleSuggestionUpdate(redrawn);
+    }
+  };
+
+  const processOutgoingTerminalInput = (data: string): boolean => {
+    if (
+      suppressSuggestKeyRef.current &&
+      (data === '\t' || data === '\x1b[C' || data === '\x1bOC')
+    ) {
+      return false;
+    }
+
+    if (isInputNavigation(data)) {
+      resetInputTracking();
+      return true;
+    }
+
+    if (data === '\r') {
+      if (inputBufferRef.current.trim()) {
+        AutoSuggestEngine.addHistory(inputBufferRef.current);
+      }
+      resetInputTracking();
+      return true;
+    }
+
+    if (data === '\u007F') {
+      if (inputBufferRef.current.length > 0) {
+        inputBufferRef.current = inputBufferRef.current.slice(0, -1);
+      }
+      scheduleSuggestionUpdate(inputBufferRef.current);
+      return true;
+    }
+
+    if (data.length === 1 && data >= ' ') {
+      inputBufferRef.current += data;
+      scheduleSuggestionUpdate(inputBufferRef.current);
+    }
+
+    return true;
+  };
+
   const getTermCellMetrics = (term: Terminal) => {
     const screen = term.element?.querySelector('.xterm-screen') as HTMLElement | null;
     if (!screen) return null;
@@ -382,11 +446,16 @@ export const TerminalTab: React.FC<TerminalTabProps> = ({
     badge.style.letterSpacing = '0';
   };
 
+  const suggestionFrameRef = useRef<number | null>(null);
+
   /** Refresh after paint so cursorX reflects remote echo. */
   const scheduleSuggestionUpdate = (prefix: string) => {
-    requestAnimationFrame(() => {
+    if (suggestionFrameRef.current !== null) {
+      cancelAnimationFrame(suggestionFrameRef.current);
+    }
+    suggestionFrameRef.current = requestAnimationFrame(() => {
+      suggestionFrameRef.current = null;
       updateSuggestionOverlay(prefix);
-      requestAnimationFrame(() => updateSuggestionOverlay(prefix));
     });
   };
 
@@ -859,8 +928,6 @@ export const TerminalTab: React.FC<TerminalTabProps> = ({
       void closeSession(tab.id);
     }
 
-    suppressHomeClearRef.current = true;
-
     if (!isTauriRuntime()) {
       term.write(
         `\x1b[36mConnecting to ${tab.sshConfig?.username}@${tab.sshConfig?.host}:${tab.sshConfig?.port}…\x1b[0m\r\n`
@@ -879,11 +946,7 @@ export const TerminalTab: React.FC<TerminalTabProps> = ({
           setTimeout(() => term.focus(), 100);
         } else if (msg.type === 'DATA' && msg.data != null) {
           appendSessionLog(msg.data, 'RX');
-          writeIncomingTerminalData(term, msg.data);
-          try {
-            AutoSuggestEngine.indexRemoteOutput(msg.data);
-          } catch {}
-          requestAnimationFrame(() => scheduleSuggestionUpdate(inputBufferRef.current));
+          handleIncomingInteractiveData(term, msg.data);
         } else if (msg.type === 'ERROR') {
           term.write(`\r\n\x1b[31m${msg.error}\x1b[0m\r\n`);
           onUpdateTabStatus(tab.id, 'disconnected');
@@ -895,17 +958,27 @@ export const TerminalTab: React.FC<TerminalTabProps> = ({
         }
       });
 
+      if (fitAddonRef.current) {
+        fitTerminalToHost(term, fitAddonRef.current, terminalRef.current);
+      }
+
       void openSshSession(tab.id, {
         host: tab.sshConfig?.host || '',
         port: tab.sshConfig?.port,
         username: tab.sshConfig?.username || '',
         password: tab.sshConfig?.password,
         privateKeyPath: tab.sshConfig?.privateKeyPath,
-      }).catch((err) => {
-        const message = err instanceof Error ? err.message : String(err);
-        term.write(`\r\n\x1b[31m${message}\x1b[0m\r\n`);
-        onUpdateTabStatus(tab.id, 'disconnected');
-      });
+        rows: term.rows,
+        cols: term.cols,
+      })
+        .then(() => {
+          notifyTerminalResize(term);
+        })
+        .catch((err) => {
+          const message = err instanceof Error ? err.message : String(err);
+          term.write(`\r\n\x1b[31m${message}\x1b[0m\r\n`);
+          onUpdateTabStatus(tab.id, 'disconnected');
+        });
       return;
     }
 
@@ -914,9 +987,14 @@ export const TerminalTab: React.FC<TerminalTabProps> = ({
 
     ws.onopen = () => {
       if (retryTimerRef.current) clearTimeout(retryTimerRef.current);
+      if (fitAddonRef.current) {
+        fitTerminalToHost(term, fitAddonRef.current, terminalRef.current);
+      }
       ws.send(JSON.stringify({
         type: 'INIT_SSH',
         config: tab.sshConfig,
+        rows: term.rows,
+        cols: term.cols,
       }));
     };
 
@@ -927,17 +1005,12 @@ export const TerminalTab: React.FC<TerminalTabProps> = ({
           term.write(`\x1b[33m${msg.message}\x1b[0m\r\n`);
         } else if (msg.type === 'CONNECTED') {
           onUpdateTabStatus(tab.id, 'connected');
+          notifyTerminalResize(term);
           stayAtBottomIfPinned(term);
           setTimeout(() => term.focus(), 100);
         } else if (msg.type === 'DATA') {
           appendSessionLog(msg.data, 'RX');
-          writeIncomingTerminalData(term, msg.data);
-          try {
-            AutoSuggestEngine.indexRemoteOutput(msg.data);
-          } catch {}
-          requestAnimationFrame(() => {
-            scheduleSuggestionUpdate(inputBufferRef.current);
-          });
+          handleIncomingInteractiveData(term, msg.data);
         } else if (msg.type === 'ERROR') {
           term.write(`\r\n\x1b[31m${msg.error}\x1b[0m\r\n`);
           onUpdateTabStatus(tab.id, 'disconnected');
@@ -1005,6 +1078,20 @@ export const TerminalTab: React.FC<TerminalTabProps> = ({
       handleTerminalKeyRef.current(domEvent, term, tab.protocol === 'local')
     );
 
+    // Classic PuTTY: Automatically copy text to clipboard as soon as it is selected
+    term.onSelectionChange(() => {
+      const selection = term.getSelection();
+      if (selection && selection.length > 0) {
+        savedSelectionRef.current = selection;
+        void writeClipboardText(selection).catch(() => undefined);
+      }
+    });
+
+    // Keep inline suggestion badge aligned whenever cursor moves
+    term.onCursorMove(() => {
+      scheduleSuggestionUpdate(inputBufferRef.current);
+    });
+
     // Capture Tab before the browser moves focus out of the terminal
     const hostEl = terminalRef.current?.parentElement;
     const onTabCapture = (ev: KeyboardEvent) => {
@@ -1044,28 +1131,7 @@ export const TerminalTab: React.FC<TerminalTabProps> = ({
       connectSSHWebSocket(term, 1);
 
       term.onData((data) => {
-        if (
-          suppressSuggestKeyRef.current &&
-          (data === '\t' || data === '\x1b[C' || data === '\x1bOC')
-        ) {
-          return;
-        }
-
-        if (data === '\r') {
-          if (inputBufferRef.current.trim()) {
-            AutoSuggestEngine.addHistory(inputBufferRef.current);
-          }
-          inputBufferRef.current = '';
-          hideInlineSuggestion();
-        } else if (data === '\u007F') {
-          if (inputBufferRef.current.length > 0) {
-            inputBufferRef.current = inputBufferRef.current.slice(0, -1);
-          }
-          scheduleSuggestionUpdate(inputBufferRef.current);
-        } else if (data.length === 1 && data >= ' ') {
-          inputBufferRef.current += data;
-          scheduleSuggestionUpdate(inputBufferRef.current);
-        }
+        if (!processOutgoingTerminalInput(data)) return;
 
         if (socketRef.current?.readyState === WebSocket.OPEN) {
           socketRef.current.send(JSON.stringify({ type: 'DATA', data }));
@@ -1077,28 +1143,7 @@ export const TerminalTab: React.FC<TerminalTabProps> = ({
       connectLocalShellRef.current(term);
 
       term.onData((data) => {
-        if (
-          suppressSuggestKeyRef.current &&
-          (data === '\t' || data === '\x1b[C' || data === '\x1bOC')
-        ) {
-          return;
-        }
-
-        if (data === '\r') {
-          if (inputBufferRef.current.trim()) {
-            AutoSuggestEngine.addHistory(inputBufferRef.current);
-          }
-          inputBufferRef.current = '';
-          hideInlineSuggestion();
-        } else if (data === '\u007F') {
-          if (inputBufferRef.current.length > 0) {
-            inputBufferRef.current = inputBufferRef.current.slice(0, -1);
-          }
-          scheduleSuggestionUpdate(inputBufferRef.current);
-        } else if (data.length === 1 && data >= ' ') {
-          inputBufferRef.current += data;
-          scheduleSuggestionUpdate(inputBufferRef.current);
-        }
+        if (!processOutgoingTerminalInput(data)) return;
 
         sendSessionData({ data });
       });
@@ -1210,13 +1255,30 @@ export const TerminalTab: React.FC<TerminalTabProps> = ({
   }, [isActive, tab.id]);
 
   const wipeTerminal = (term: Terminal) => {
-    const scrollback = term.options.scrollback ?? 10000;
-    term.options.scrollback = 0;
-    term.reset();
+    // Capture the current prompt line (path & prompt) before clearing
+    let lineIndex = term.buffer.active.baseY + term.buffer.active.cursorY;
+    let promptLine = term.buffer.active.getLine(lineIndex)?.translateToString(true) || '';
+    if (!promptLine.trim() && lineIndex > 0) {
+      const prev = term.buffer.active.getLine(lineIndex - 1)?.translateToString(true) || '';
+      if (prev.trim()) {
+        promptLine = prev;
+      }
+    }
+    const cursorX = term.buffer.active.cursorX;
+
+    // Clear entire scrollback and screen, home cursor to row 1
     term.clear();
-    term.options.scrollback = scrollback;
-    // Cursor at top-left, no scroll jump.
-    term.write('\x1b[H');
+    term.write('\x1b[2J\x1b[3J\x1b[H');
+
+    // Place the active prompt line cleanly at the top
+    if (promptLine) {
+      term.write(promptLine);
+      if (cursorX < promptLine.length) {
+        term.write(`\x1b[1;${cursorX + 1}H`);
+      }
+    } else if (tab.protocol === 'local' && !isTauriRuntime()) {
+      term.write(`\x1b[36mPS C:\\Users\\Developer> \x1b[0m`);
+    }
   };
 
   const handleClear = () => {
@@ -1234,22 +1296,6 @@ export const TerminalTab: React.FC<TerminalTabProps> = ({
     }
     hexPendingRef.current = [];
     wipeTerminal(term);
-
-    if (tab.protocol === 'local' && isTauriRuntime()) {
-      // Let Clear-Host do the PTY reset so the cursor is in the right place.
-      // We wipe the xterm display immediately, then let the PTY response land and scroll to top.
-      suppressHomeClearRef.current = true;
-      suppressScrollUntilRef.current = Date.now() + 2000;
-      sendSessionData({ data: 'Clear-Host\r' });
-      return;
-    }
-    if (tab.protocol === 'ssh' && isTauriRuntime()) {
-      sendSessionData({ data: '\r' });
-      return;
-    }
-    if (tab.protocol === 'local') {
-      term.write(`\x1b[36mPS C:\\Users\\Developer> \x1b[0m`);
-    }
   };
 
   const connectLocalShell = (term: Terminal) => {
@@ -1295,11 +1341,7 @@ export const TerminalTab: React.FC<TerminalTabProps> = ({
             }, 100);
           } else if (msg.type === 'DATA' && msg.data != null) {
             appendSessionLog(msg.data, 'RX');
-            writeIncomingTerminalData(term, msg.data);
-            try {
-              AutoSuggestEngine.indexRemoteOutput(msg.data);
-            } catch {}
-            requestAnimationFrame(() => scheduleSuggestionUpdate(inputBufferRef.current));
+            handleIncomingInteractiveData(term, msg.data);
           } else if (msg.type === 'ERROR') {
             term.write(`\r\n\x1b[31m${msg.error}\x1b[0m\r\n`);
             onUpdateTabStatus(tab.id, 'disconnected');
@@ -1311,9 +1353,14 @@ export const TerminalTab: React.FC<TerminalTabProps> = ({
           }
         });
 
+        if (fitAddonRef.current) {
+          fitTerminalToHost(term, fitAddonRef.current, terminalRef.current);
+        }
+
         await openLocalSession(tab.id, { rows: term.rows, cols: term.cols });
         if (epoch !== localConnectEpochRef.current) return;
 
+        notifyTerminalResize(term);
         onUpdateTabStatus(tab.id, 'connected');
         stayAtBottomIfPinned(term);
         setTimeout(() => {
@@ -1509,6 +1556,18 @@ export const TerminalTab: React.FC<TerminalTabProps> = ({
 
     const isRightArrow = domEvent.key === 'ArrowRight' || domEvent.code === 'ArrowRight';
     const isTab = domEvent.key === 'Tab' || domEvent.code === 'Tab';
+    const isHistoryNavKey =
+      domEvent.key === 'ArrowUp' ||
+      domEvent.key === 'ArrowDown' ||
+      domEvent.key === 'ArrowLeft' ||
+      domEvent.key === 'Home' ||
+      domEvent.key === 'End' ||
+      domEvent.key === 'PageUp' ||
+      domEvent.key === 'PageDown';
+
+    if (isHistoryNavKey) {
+      resetInputTracking();
+    }
 
     // Accept inline suggestion with Tab or → (standard editor behavior)
     if ((isTab || isRightArrow) && ghostSuggestionRef.current) {
@@ -1527,42 +1586,9 @@ export const TerminalTab: React.FC<TerminalTabProps> = ({
   const handleContextMenu = (e: React.MouseEvent) => {
     e.preventDefault();
     e.stopPropagation();
-    savedSelectionRef.current = xtermRef.current?.getSelection() || '';
-
-    const approxW = 200;
-    const approxH = 168;
-    const pad = 8;
-    let x = e.clientX;
-    let y = e.clientY;
-    if (x + approxW > window.innerWidth - pad) x = Math.max(pad, window.innerWidth - approxW - pad);
-    if (y + approxH > window.innerHeight - pad) y = Math.max(pad, window.innerHeight - approxH - pad);
-    if (x < pad) x = pad;
-    if (y < pad) y = pad;
-
-    setContextMenu({ x, y, hasSelection: Boolean(savedSelectionRef.current) });
+    // Classic PuTTY: Right-click immediately pastes clipboard contents into the active terminal
+    void handlePasteClipboard();
   };
-
-  useLayoutEffect(() => {
-    if (!contextMenu || !contextMenuRef.current) return;
-    const el = contextMenuRef.current;
-    const rect = el.getBoundingClientRect();
-    const pad = 8;
-    let x = contextMenu.x;
-    let y = contextMenu.y;
-
-    if (x + rect.width > window.innerWidth - pad) {
-      x = Math.max(pad, window.innerWidth - rect.width - pad);
-    }
-    if (y + rect.height > window.innerHeight - pad) {
-      y = Math.max(pad, window.innerHeight - rect.height - pad);
-    }
-    if (x < pad) x = pad;
-    if (y < pad) y = pad;
-
-    if (x !== contextMenu.x || y !== contextMenu.y) {
-      setContextMenu({ ...contextMenu, x, y });
-    }
-  }, [contextMenu]);
 
   const handleToggleLogging = () => {
     const next = !isLogging;
@@ -1861,68 +1887,6 @@ export const TerminalTab: React.FC<TerminalTabProps> = ({
           </div>
         )}
         </div>
-
-        {contextMenu && (
-          <div
-            ref={contextMenuRef}
-            className="ctx-menu"
-            style={{ top: contextMenu.y, left: contextMenu.x }}
-            onClick={(e) => e.stopPropagation()}
-            onContextMenu={(e) => e.preventDefault()}
-          >
-            <button
-              type="button"
-              className="ctx-menu-item"
-              disabled={!contextMenu.hasSelection}
-              onClick={() => {
-                void handleCopySelection().then(() => setContextMenu(null));
-              }}
-            >
-              <span className="ctx-menu-item-left">
-                <Copy className="w-3.5 h-3.5" /> Copy
-              </span>
-              <span className="ctx-menu-kbd">Ctrl+C</span>
-            </button>
-            <button
-              type="button"
-              className="ctx-menu-item"
-              onClick={() => {
-                void handlePasteClipboard().then(() => setContextMenu(null));
-              }}
-            >
-              <span className="ctx-menu-item-left">
-                <Clipboard className="w-3.5 h-3.5" /> Paste
-              </span>
-              <span className="ctx-menu-kbd">Ctrl+V</span>
-            </button>
-            <div className="ctx-menu-sep" />
-            <button
-              type="button"
-              className="ctx-menu-item"
-              onClick={() => {
-                xtermRef.current?.selectAll();
-                savedSelectionRef.current = xtermRef.current?.getSelection() || '';
-                setContextMenu(null);
-              }}
-            >
-              <span className="ctx-menu-item-left">
-                <Binary className="w-3.5 h-3.5" /> Select all
-              </span>
-            </button>
-            <button
-              type="button"
-              className="ctx-menu-item"
-              onClick={() => {
-                handleClear();
-                setContextMenu(null);
-              }}
-            >
-              <span className="ctx-menu-item-left">
-                <Trash2 className="w-3.5 h-3.5" /> Clear
-              </span>
-            </button>
-          </div>
-        )}
       </div>
     </div>
   );

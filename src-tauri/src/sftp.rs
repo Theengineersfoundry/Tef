@@ -29,6 +29,8 @@ impl From<SftpAuth> for SshConfig {
       username: a.username,
       password: a.password,
       private_key_path: a.private_key_path,
+      rows: None,
+      cols: None,
     }
   }
 }

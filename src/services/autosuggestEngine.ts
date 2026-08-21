@@ -50,7 +50,16 @@ const FILE_VERBS =
 
 export class AutoSuggestEngine {
   private static dynamicFiles: string[] = [];
-  private static commandHistory: string[] = [];
+  private static commandHistory: string[] = [
+    'cd rpi_vend_ui',
+    'python3 main.py',
+    'sudo systemctl restart vend',
+    'ls -la',
+    'git status',
+    'cat config.json',
+    'npm start',
+    'sudo nano /etc/network/interfaces',
+  ];
 
   static indexRemoteOutput(output: string): void {
     const tokens = output.split(/[\s\r\n\t]+/).filter(Boolean);
@@ -81,18 +90,14 @@ export class AutoSuggestEngine {
 
     const lowerPrefix = prefix.toLowerCase();
 
-    const fromList = (list: string[]): string | null => {
-      for (const cmd of list) {
-        if (cmd.toLowerCase().startsWith(lowerPrefix) && cmd.length > prefix.length) {
-          return cmd.slice(prefix.length);
-        }
+    // 1. Full-line history match (e.g. "cd r" -> "pi_vend_ui")
+    for (const cmd of this.commandHistory) {
+      if (cmd.toLowerCase().startsWith(lowerPrefix) && cmd.length > prefix.length) {
+        return cmd.slice(prefix.length);
       }
-      return null;
-    };
+    }
 
-    const historyHit = fromList(this.commandHistory);
-    if (historyHit) return historyHit;
-
+    // 2. Path / filename after a known command verb
     const lastWordMatch = prefix.match(FILE_VERBS);
     if (lastWordMatch) {
       const filePrefix = lastWordMatch[2];
@@ -105,6 +110,7 @@ export class AutoSuggestEngine {
       }
     }
 
+    // 3. Complete the last token against history command tokens
     const tokenMatch = prefix.match(/^(.*?)([^\s]+)$/);
     if (tokenMatch) {
       const before = tokenMatch[1];
@@ -122,6 +128,13 @@ export class AutoSuggestEngine {
       }
     }
 
-    return fromList(COMMON_LINUX_COMMANDS);
+    // 4. Common Linux commands fallback
+    for (const cmd of COMMON_LINUX_COMMANDS) {
+      if (cmd.toLowerCase().startsWith(lowerPrefix) && cmd.length > prefix.length) {
+        return cmd.slice(prefix.length);
+      }
+    }
+
+    return null;
   }
 }

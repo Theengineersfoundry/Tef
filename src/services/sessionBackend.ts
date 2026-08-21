@@ -38,6 +38,8 @@ export type SshOpenConfig = {
   username: string;
   password?: string;
   privateKeyPath?: string;
+  rows?: number;
+  cols?: number;
 };
 
 type SessionListener = (event: SessionEvent) => void;
@@ -126,6 +128,8 @@ export async function openSshSession(sessionId: string, config: SshOpenConfig): 
       username: config.username,
       password: config.password,
       privateKeyPath: config.privateKeyPath,
+      rows: config.rows ?? null,
+      cols: config.cols ?? null,
     },
   });
 }
