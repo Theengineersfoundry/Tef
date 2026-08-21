@@ -382,11 +382,13 @@ wss.on('connection', (ws: WebSocket) => {
       // ── INIT_SSH: Open a real SSH connection ──
       if (payload.type === 'INIT_SSH') {
         const { host, port, username, password, privateKeyPath } = payload.config;
+        const rows = Math.max(2, Number(payload.rows) || 24);
+        const cols = Math.max(2, Number(payload.cols) || 80);
         sshClient = new Client();
 
         sshClient.on('ready', () => {
           ws.send(JSON.stringify({ type: 'STATUS', message: 'SSH Authentication Successful! Spawning shell...' }));
-          sshClient!.shell({ term: 'xterm-256color', rows: 30, cols: 100 }, (err, stream) => {
+          sshClient!.shell({ term: 'xterm-256color', rows, cols }, (err, stream) => {
             if (err) { ws.send(JSON.stringify({ type: 'ERROR', error: err.message })); return; }
 
             // Store stream reference so DATA messages can reach it

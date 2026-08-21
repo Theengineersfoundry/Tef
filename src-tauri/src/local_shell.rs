@@ -17,6 +17,9 @@ fn shell_command() -> CommandBuilder {
         let mut cmd = CommandBuilder::new(name);
         if name != "cmd.exe" {
           cmd.arg("-NoLogo");
+          cmd.arg("-NoExit");
+          cmd.arg("-Command");
+          cmd.arg("Remove-Module PSReadLine -ErrorAction SilentlyContinue; Clear-Host");
         }
         cmd.env("TERM", "xterm-256color");
         return cmd;

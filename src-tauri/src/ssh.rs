@@ -19,6 +19,8 @@ pub struct SshConfig {
   pub username: String,
   pub password: Option<String>,
   pub private_key_path: Option<String>,
+  pub rows: Option<u32>,
+  pub cols: Option<u32>,
 }
 
 struct ClientHandler {
@@ -170,8 +172,11 @@ pub async fn open_ssh(
     .await
     .map_err(|e| format!("Failed to open SSH session channel: {e}"))?;
 
+  let cols = config.cols.unwrap_or(80).clamp(2, 512) as u32;
+  let rows = config.rows.unwrap_or(24).clamp(2, 512) as u32;
+
   channel
-    .request_pty(false, "xterm-256color", 80, 24, 0, 0, &[])
+    .request_pty(false, "xterm-256color", cols, rows, 0, 0, &[])
     .await
     .map_err(|e| format!("PTY request failed: {e}"))?;
   channel
